@@ -159,8 +159,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         /* private mode: ignore */
       }
       try {
-        // REGISTER and LIVE_MAP are screens, so there is no seeded role to log into for them.
-        if (next === 'REGISTER' || next === 'LIVE_MAP') return;
+        // REGISTER, LIVE_MAP, and PAYMENTS are screens, so there is no seeded role to log into for them.
+        if (next === 'REGISTER' || next === 'LIVE_MAP' || next === 'PAYMENTS') return;
         const login = await api.demoLogin(next);
         setSession(login);
       } catch (err) {

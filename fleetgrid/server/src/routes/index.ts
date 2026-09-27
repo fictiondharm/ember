@@ -12,6 +12,8 @@ import { recoveryRouter } from './recovery.js';
 import { shipmentsRouter } from './shipments.js';
 import { trucksRouter } from './trucks.js';
 
+import { paymentsRouter } from './payments.js';
+
 export function buildRouter(): Router {
   const router = Router();
 
@@ -26,6 +28,7 @@ export function buildRouter(): Router {
   router.use(recoveryRouter);
   router.use(eventsRouter);
   router.use(demoRouter);
+  router.use(paymentsRouter);
   router.use(integrationsRouter);
 
   return router;

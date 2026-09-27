@@ -1,6 +1,7 @@
 import { FleetProvider, useFleet } from './store/FleetContext';
 import { ControlTower } from './views/ControlTower';
 import { LiveMapView } from './views/LiveMapView';
+import { PaymentsView } from './views/PaymentsView';
 import { Business } from './views/Business';
 import { Driver } from './views/Driver';
 import { Register } from './views/Register';
@@ -11,6 +12,7 @@ function Router() {
   if (mode === 'REGISTER') return <Register />;
   if (mode === 'CONTROL_TOWER') return <ControlTower />;
   if (mode === 'LIVE_MAP') return <LiveMapView />;
+  if (mode === 'PAYMENTS') return <PaymentsView />;
   if (mode === 'BUSINESS') return <Business />;
   if (mode === 'DRIVER') return <Driver />;
   return <RoleSelect />;
