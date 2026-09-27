@@ -114,14 +114,19 @@ class DemoTruckSim:
 
 def post_location(base_url: str, payload: dict) -> bool:
     truck_id = payload["truck_id"]
-    url = f"{base_url.rstrip('/')}/trucks/{truck_id}/location"
     body = json.dumps({
         "latitude": payload["latitude"],
         "longitude": payload["longitude"],
+        "lat": payload["latitude"],
+        "lng": payload["longitude"],
         "speed_kmph": payload["speed_kmph"],
+        "speedKmph": payload["speed_kmph"],
         "heading": payload["heading"]
     }).encode("utf-8")
 
+    # Post to primary backend (FastAPI 8000)
+    success = False
+    url = f"{base_url.rstrip('/')}/trucks/{truck_id}/location"
     req = urllib.request.Request(
         url,
         data=body,
@@ -130,10 +135,26 @@ def post_location(base_url: str, payload: dict) -> bool:
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status == 200
+            success = (resp.status == 200)
     except Exception as e:
-        print(f"   [Error] Failed to post {truck_id}: {e}")
-        return False
+        print(f"   [Error] Failed to post {truck_id} to {url}: {e}")
+
+    # Also mirror to Express backend (port 4000) if different
+    if "4000" not in base_url:
+        try:
+            express_req = urllib.request.Request(
+                f"http://localhost:4000/trucks/{truck_id}/location",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(express_req, timeout=2) as _:
+                pass
+        except Exception:
+            pass
+
+    return success
+
 
 
 def main():

@@ -207,3 +207,26 @@ export async function departTruck(truckId: string, actorId?: string | null): Pro
     return { truck: updatedTruck, shipments: updatedShipments };
   });
 }
+
+/** Updates GPS coordinates, heading, and speed of a truck and broadcasts in real time. */
+export async function updateTruckLocation(
+  truckId: string,
+  lat: number,
+  lng: number,
+  speedKmph?: number,
+  heading?: number,
+): Promise<Truck> {
+  return runExclusive(async () => {
+    const truck = await getTruck(truckId);
+    const updated = await db.trucks.update(truck.id, {
+      lat: round(lat, 6),
+      lng: round(lng, 6),
+      ...(speedKmph !== undefined ? { speedKmph: round(speedKmph, 1) } : {}),
+      ...(heading !== undefined ? { heading: Math.round(heading) } : {}),
+    });
+    if (!updated) throw ApiError.notFound(`Truck ${truck.id} disappeared.`);
+    hub.broadcast('truck.updated', updated);
+    return updated;
+  });
+}
+

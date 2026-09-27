@@ -102,6 +102,8 @@ export interface Truck {
   status: TruckStatus;
   lat: number;
   lng: number;
+  speedKmph?: number;
+  heading?: number;
   origin: string;
   destination: string;
   departureAt: string | null;

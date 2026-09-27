@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -93,7 +93,17 @@ export function createJsonStore<T extends { id: string }>(options: JsonStoreOpti
       await mkdir(dirname(filePath), { recursive: true });
       const tmp = `${filePath}.tmp`;
       await writeFile(tmp, serialised, 'utf8');
-      await rename(tmp, filePath);
+      try {
+        await rename(tmp, filePath);
+      } catch {
+        // Windows filesystem fallback when rename throws EPERM / EBUSY
+        try {
+          await copyFile(tmp, filePath);
+          await unlink(tmp);
+        } catch {
+          await writeFile(filePath, serialised, 'utf8');
+        }
+      }
     });
     await writeChain;
   }

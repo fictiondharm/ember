@@ -1,12 +1,35 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../store/db.js';
-import { createTruck, departTruck, getTruck, listTrucks } from '../services/trucks.js';
+import { createTruck, departTruck, getTruck, listTrucks, updateTruckLocation } from '../services/trucks.js';
 import { asyncHandler } from '../middleware/errors.js';
 import { validateBody } from '../middleware/validate.js';
 import { requiredParam } from '../middleware/params.js';
 
 export const trucksRouter: Router = Router();
+
+trucksRouter.get(
+  '/trucks/locations',
+  asyncHandler(async (_req, res) => {
+    const trucks = await listTrucks();
+    res.json(
+      trucks.map((t) => ({
+        id: t.id,
+        registration_no: t.registrationNo,
+        registration_number: t.registrationNo,
+        latitude: t.lat,
+        longitude: t.lng,
+        speed_kmph: t.speedKmph ?? 0,
+        heading: t.heading ?? 0,
+        status: t.status,
+        location_status: t.status,
+        origin: t.origin,
+        destination: t.destination,
+      })),
+    );
+  }),
+);
+
 
 const createTruckSchema = z.object({
   id: z.string().min(2).max(32).optional(),
@@ -69,3 +92,29 @@ trucksRouter.post(
     });
   }),
 );
+
+/** POST /trucks/:id/location — updates GPS coordinates & heading and broadcasts over websocket. */
+trucksRouter.post(
+  '/trucks/:id/location',
+  asyncHandler(async (req, res) => {
+    const id = requiredParam(req, 'id');
+    const { lat, lng, latitude, longitude, speed_kmph, speedKmph, heading } = req.body ?? {};
+    const finalLat = lat ?? latitude;
+    const finalLng = lng ?? longitude;
+    const finalSpeed = speed_kmph ?? speedKmph;
+    if (typeof finalLat !== 'number' || typeof finalLng !== 'number') {
+      res.status(400).json({ error: { message: 'latitude and longitude are required numbers' } });
+      return;
+    }
+    const updated = await updateTruckLocation(id, finalLat, finalLng, finalSpeed, heading);
+    res.json({
+      status: 'success',
+      truck_id: updated.id,
+      latitude: updated.lat,
+      longitude: updated.lng,
+      speed_kmph: finalSpeed ?? 0,
+      heading: heading ?? 0,
+    });
+  }),
+);
+

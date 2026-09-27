@@ -32,7 +32,7 @@ export const ROUTE_CORRIDOR: CorridorPoint[] = [
 /** Where a truck sits on the drawn corridor, derived from its server coordinates. */
 export function progressFor(lat: number, lng: number, origin: string, destination: string): number {
   const start = ROUTE_CORRIDOR.find((n) => n.city === origin) ?? ROUTE_CORRIDOR[0];
-  const end = ROUTE_CORRIDOR.find((n) => n.city === destination) ?? ROUTE_CORRIDOR[2];
+  const end = ROUTE_CORRIDOR.find((n) => n.city === destination) ?? ROUTE_CORRIDOR[ROUTE_CORRIDOR.length - 1];
   if (!start || !end) return 0;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return start.progress;
 

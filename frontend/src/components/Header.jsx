@@ -39,6 +39,30 @@ export default function Header({ wsStatus, trucks }) {
           <span className="status-dot"></span>
           <span>{wsStatus === 'connected' ? '● LIVE' : '● RECONNECTING'}</span>
         </div>
+
+        <a
+          href="http://localhost:5174"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: 'rgba(56, 189, 248, 0.1)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            borderRadius: '6px',
+            color: '#38bdf8',
+            fontSize: '11px',
+            fontWeight: 600,
+            textDecoration: 'none',
+            padding: '6px 12px',
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          Control Tower ↗
+        </a>
       </div>
     </header>
   );
