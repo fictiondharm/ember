@@ -7,6 +7,7 @@ import { eventsRouter } from './events.js';
 import { healthRouter } from './health.js';
 import { incidentsRouter } from './incidents.js';
 import { integrationsRouter } from './integrations.js';
+import { miscRouter } from './misc.js';
 import { paymentsRouter } from './payments.js';
 import { recoveryRouter } from './recovery.js';
 import { shipmentsRouter } from './shipments.js';
