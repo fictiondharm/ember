@@ -16,28 +16,54 @@ export interface CorridorNode {
 
 export const ROUTE_CORRIDOR: CorridorNode[] = [
   { city: 'Bengaluru', lat: 12.9716, lng: 77.5946, progress: 0 },
-  { city: 'Hosur', lat: 12.7299, lng: 77.5172, progress: 0.42 },
+  { city: 'Electronic City', lat: 12.8452, lng: 77.6602, progress: 0.08 },
+  { city: 'Attibele', lat: 12.7783, lng: 77.7712, progress: 0.14 },
+  { city: 'Hosur', lat: 12.7409, lng: 77.8253, progress: 0.20 },
+  { city: 'Shoolagiri', lat: 12.6658, lng: 78.0121, progress: 0.28 },
+  { city: 'Krishnagiri', lat: 12.5186, lng: 78.2138, progress: 0.36 },
+  { city: 'Bargur', lat: 12.5442, lng: 78.3615, progress: 0.43 },
+  { city: 'Natrampalli', lat: 12.6074, lng: 78.5303, progress: 0.49 },
+  { city: 'Vaniyambadi', lat: 12.6825, lng: 78.6200, progress: 0.55 },
+  { city: 'Ambur', lat: 12.7904, lng: 78.7166, progress: 0.61 },
+  { city: 'Pallikonda', lat: 12.8751, lng: 78.9329, progress: 0.68 },
+  { city: 'Vellore', lat: 12.9165, lng: 79.1325, progress: 0.75 },
+  { city: 'Ranipet', lat: 12.9304, lng: 79.3621, progress: 0.81 },
+  { city: 'Kanchipuram', lat: 12.8342, lng: 79.7036, progress: 0.88 },
+  { city: 'Sriperumbudur', lat: 12.9675, lng: 79.9439, progress: 0.94 },
   { city: 'Chennai', lat: 13.0827, lng: 80.2707, progress: 1 },
 ];
 
 const LOCATION_ALIASES: Record<string, string> = {
   bengaluru: 'Bengaluru',
   bangalore: 'Bengaluru',
+  'electronic city': 'Electronic City',
+  attibele: 'Attibele',
   hosur: 'Hosur',
   'hosur, tamil nadu': 'Hosur',
+  'new hosur': 'Hosur',
+  shoolagiri: 'Shoolagiri',
+  krishnagiri: 'Krishnagiri',
+  bargur: 'Bargur',
+  natrampalli: 'Natrampalli',
+  vaniyambadi: 'Vaniyambadi',
+  ambur: 'Ambur',
+  pallikonda: 'Pallikonda',
+  vellore: 'Vellore',
+  ranipet: 'Ranipet',
+  walajapet: 'Ranipet',
+  kanchipuram: 'Kanchipuram',
+  sriperumbudur: 'Sriperumbudur',
+  poonamallee: 'Chennai',
   chennai: 'Chennai',
   madras: 'Chennai',
-  'new hosur': 'Hosur',
   nellore: 'Nellore',
   tiruppur: 'Tiruppur',
-  krishnagiri: 'Krishnagiri',
 };
 
 /** Loose coordinates for incident locations that are not on the seeded corridor. */
 const EXTRA_POINTS: Record<string, { lat: number; lng: number; progress: number }> = {
   Nellore: { lat: 14.4426, lng: 79.9864, progress: 0.74 },
   Tiruppur: { lat: 11.1085, lng: 77.3411, progress: 0.3 },
-  Krishnagiri: { lat: 12.5266, lng: 78.2141, progress: 0.2 },
 };
 
 /** Normalises a free-text location to a canonical city label where possible. */
@@ -80,18 +106,31 @@ const EARTH_RADIUS_KM = 6371;
 const toRad = (deg: number): number => (deg * Math.PI) / 180;
 
 /**
- * The Bengaluru → Chennai corridor in travel order, including the intermediate
+ * The Bengaluru → Chennai corridor in true physical travel order, including the intermediate
  * stops a shipper might want to use.
  *
  * This is what makes a half-route request work: a truck running the whole
- * Bengaluru → Chennai lane also passes Krishnagiri, Hosur and Nellore, so it can
- * legitimately serve Bengaluru → Hosur without being re-seeded as a separate lane.
- *
- * Order is declared rather than derived from latitude because the demo corridor is
- * stylised; sorting by coordinates would put Tiruppur (off to the west, near
- * Coimbatore) in the middle of a lane it is not part of.
+ * Bengaluru → Chennai lane also passes Hosur, Krishnagiri, Vellore, and Sriperumbudur,
+ * so it can legitimately serve any sub-segment without being re-seeded as a separate lane.
  */
-export const CORRIDOR_ORDER = ['Bengaluru', 'Krishnagiri', 'Hosur', 'Nellore', 'Chennai'] as const;
+export const CORRIDOR_ORDER = [
+  'Bengaluru',
+  'Electronic City',
+  'Attibele',
+  'Hosur',
+  'Shoolagiri',
+  'Krishnagiri',
+  'Bargur',
+  'Natrampalli',
+  'Vaniyambadi',
+  'Ambur',
+  'Pallikonda',
+  'Vellore',
+  'Ranipet',
+  'Kanchipuram',
+  'Sriperumbudur',
+  'Chennai',
+] as const;
 
 /** Position of a city along the corridor, or null when it is not on the lane. */
 export function corridorIndex(city: string): number | null {

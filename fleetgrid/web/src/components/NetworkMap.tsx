@@ -83,19 +83,26 @@ export function NetworkMap({ trucks, incidents, flashIds, flashTone, onSelectTru
         </svg>
       </div>
 
-      {/* City anchors */}
-      {ROUTE_CORRIDOR.map((node) => (
-        <div
-          key={node.city}
-          className="absolute -translate-x-1/2"
-          style={{ left: `${node.progress * 100}%`, top: 'calc(50% + 10px)' }}
-        >
-          <div className="flex flex-col items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rotate-45 border border-base-500 bg-base-900" />
-            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-500">{node.city}</span>
+      {/* City anchors with all corridor nodes */}
+      {ROUTE_CORRIDOR.map((node, idx) => {
+        const isMajor = ['Bengaluru', 'Hosur', 'Krishnagiri', 'Ambur', 'Vellore', 'Sriperumbudur', 'Chennai'].includes(node.city);
+        const yOffset = idx % 2 === 0 ? '10px' : '25px';
+        return (
+          <div
+            key={node.city}
+            className="group absolute -translate-x-1/2 transition-opacity"
+            style={{ left: `${node.progress * 100}%`, top: `calc(50% + ${yOffset})` }}
+            title={`${node.city} (km ${Math.round(node.progress * 335)})`}
+          >
+            <div className="flex flex-col items-center gap-1">
+              <span className={`h-1.5 w-1.5 rotate-45 border ${isMajor ? 'border-accent bg-base-900' : 'border-base-600 bg-base-800'}`} />
+              <span className={`font-mono text-[8px] uppercase tracking-[0.08em] whitespace-nowrap ${isMajor ? 'text-ink-200 font-semibold' : 'text-ink-500 group-hover:text-ink-300'}`}>
+                {node.city}
+              </span>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* Trucks */}
       {placed.map(({ truck, progress, lane }) => {

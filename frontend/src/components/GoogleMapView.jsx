@@ -78,11 +78,20 @@ function FallbackCorridorMap({ trucks, selectedTruckId, onSelectTruck }) {
   const waypoints = [
     { name: 'Bengaluru', lat: 12.9716, lng: 77.5946 },
     { name: 'Electronic City', lat: 12.8452, lng: 77.6602 },
+    { name: 'Attibele', lat: 12.7783, lng: 77.7712 },
     { name: 'Hosur', lat: 12.7409, lng: 77.8253 },
+    { name: 'Shoolagiri', lat: 12.6658, lng: 78.0121 },
     { name: 'Krishnagiri', lat: 12.5186, lng: 78.2138 },
+    { name: 'Bargur', lat: 12.5442, lng: 78.3615 },
+    { name: 'Natrampalli', lat: 12.6074, lng: 78.5303 },
+    { name: 'Vaniyambadi', lat: 12.6825, lng: 78.6200 },
+    { name: 'Ambur', lat: 12.7904, lng: 78.7166 },
+    { name: 'Pallikonda', lat: 12.8751, lng: 78.9329 },
     { name: 'Vellore', lat: 12.9165, lng: 79.1325 },
+    { name: 'Ranipet', lat: 12.9304, lng: 79.3621 },
+    { name: 'Kanchipuram', lat: 12.8342, lng: 79.7036 },
     { name: 'Sriperumbudur', lat: 12.9675, lng: 79.9439 },
-    { name: 'Chennai', lat: 13.0674, lng: 80.2376 },
+    { name: 'Chennai', lat: 13.0827, lng: 80.2707 },
   ];
 
   const pathPoints = waypoints.map(w => {

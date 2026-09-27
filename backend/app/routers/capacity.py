@@ -7,6 +7,7 @@ from app.models.truck import Truck, CapacityOffer
 from app.models.shipment import Shipment
 from app.schemas.all_schemas import CapacityOfferResponse, ReserveCapacityRequest, ReserveCapacityResponse
 from app.services.event_service import record_shipment_event
+from app.services.geo_service import segment_fit
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/capacity", tags=["Capacity"])
@@ -35,12 +36,17 @@ def find_compatible_capacity(
         if weight_t is not None and offer.available_t < weight_t:
             continue
 
-        # Filter by route if specified
+        # Filter by route if specified (supports both exact and partial / half-route segments across all places)
+        fit = "EXACT"
+        note = None
         if origin and destination:
-            req_route = f"{origin.lower()} -> {destination.lower()}"
-            offer_route = offer.route.lower()
-            if origin.lower() not in offer_route or destination.lower() not in offer_route:
+            truck_orig = truck.origin or (offer.route.split("->")[0].strip() if "->" in offer.route else "")
+            truck_dest = truck.destination or (offer.route.split("->")[1].strip() if "->" in offer.route else "")
+            fit = segment_fit(truck_orig, truck_dest, origin, destination)
+            if fit not in ("EXACT", "PARTIAL"):
                 continue
+            if fit == "PARTIAL":
+                note = f"On the way to {truck_dest}, covering your {destination} drop"
 
         est_cost = None
         if weight_t:
@@ -55,7 +61,9 @@ def find_compatible_capacity(
             departure_at=offer.departure_at,
             status=offer.status,
             price_rule=offer.price_rule,
-            estimated_cost=est_cost
+            estimated_cost=est_cost,
+            segment_fit=fit,
+            note=note,
         ))
 
     return results

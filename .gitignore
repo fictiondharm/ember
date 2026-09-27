@@ -29,6 +29,8 @@ dist/
 build/
 *.egg-info/
 *.tsbuildinfo
+.vite/
+**/.vite/
 
 # Secrets & Environment (PRD Rule #8: Never put provider secrets in source code)
 .env

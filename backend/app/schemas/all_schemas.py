@@ -97,6 +97,8 @@ class CapacityOfferResponse(BaseModel):
     status: str
     price_rule: str
     estimated_cost: Optional[float] = None
+    segment_fit: Optional[str] = "EXACT"
+    note: Optional[str] = None
 
 class ReserveCapacityRequest(BaseModel):
     shipment_id: str

@@ -12,7 +12,20 @@ export interface CorridorPoint {
 
 export const ROUTE_CORRIDOR: CorridorPoint[] = [
   { city: 'Bengaluru', lat: 12.9716, lng: 77.5946, progress: 0 },
-  { city: 'Hosur', lat: 12.7299, lng: 77.5172, progress: 0.42 },
+  { city: 'Electronic City', lat: 12.8452, lng: 77.6602, progress: 0.08 },
+  { city: 'Attibele', lat: 12.7783, lng: 77.7712, progress: 0.14 },
+  { city: 'Hosur', lat: 12.7409, lng: 77.8253, progress: 0.20 },
+  { city: 'Shoolagiri', lat: 12.6658, lng: 78.0121, progress: 0.28 },
+  { city: 'Krishnagiri', lat: 12.5186, lng: 78.2138, progress: 0.36 },
+  { city: 'Bargur', lat: 12.5442, lng: 78.3615, progress: 0.43 },
+  { city: 'Natrampalli', lat: 12.6074, lng: 78.5303, progress: 0.49 },
+  { city: 'Vaniyambadi', lat: 12.6825, lng: 78.6200, progress: 0.55 },
+  { city: 'Ambur', lat: 12.7904, lng: 78.7166, progress: 0.61 },
+  { city: 'Pallikonda', lat: 12.8751, lng: 78.9329, progress: 0.68 },
+  { city: 'Vellore', lat: 12.9165, lng: 79.1325, progress: 0.75 },
+  { city: 'Ranipet', lat: 12.9304, lng: 79.3621, progress: 0.81 },
+  { city: 'Kanchipuram', lat: 12.8342, lng: 79.7036, progress: 0.88 },
+  { city: 'Sriperumbudur', lat: 12.9675, lng: 79.9439, progress: 0.94 },
   { city: 'Chennai', lat: 13.0827, lng: 80.2707, progress: 1 },
 ];
 
