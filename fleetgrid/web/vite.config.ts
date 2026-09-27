@@ -7,6 +7,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    optimizeDeps: {
+      include: ['@googlemaps/js-api-loader'],
+    },
     server: {
       port: Number(env.VITE_PORT ?? 5173),
       host: true,

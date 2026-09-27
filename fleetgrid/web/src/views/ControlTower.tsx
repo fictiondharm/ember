@@ -5,6 +5,7 @@ import { AppHeader } from '../components/AppHeader';
 import { Metric, StatusPill } from '../components/Primitives';
 import { Panel, Placeholder } from '../components/Panel';
 import { NetworkMap } from '../components/NetworkMap';
+import { GoogleMapView } from '../components/GoogleMapView';
 import { ShipmentTable } from '../components/ShipmentTable';
 import { EventFeed } from '../components/EventFeed';
 import { IncidentPanel } from '../components/IncidentPanel';
@@ -22,6 +23,8 @@ export function ControlTower() {
   const [filter, setFilter] = useState<FleetFilter>('ALL');
   const [resetting, setResetting] = useState(false);
   const [feedTab, setFeedTab] = useState<'agent' | 'all'>('all');
+  const [mapMode, setMapMode] = useState<'google' | 'schematic'>('google');
+  const [selectedTruckId, setSelectedTruckId] = useState<string | null>(null);
 
   const { trucks, shipments, incidents, events, users } = snapshot;
   const operatorId = useMemo(() => {
@@ -117,15 +120,58 @@ export function ControlTower() {
                 title="Bengaluru → Chennai corridor"
                 bodyClassName="p-0"
                 actions={
-                  filter !== 'ALL' ? (
-                    <button type="button" className="btn-quiet text-2xs" onClick={() => setFilter('ALL')}>
-                      Clear filter
-                    </button>
-                  ) : null
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center rounded border border-base-600 bg-base-850 p-0.5 font-mono text-3xs">
+                      <button
+                        type="button"
+                        onClick={() => setMapMode('google')}
+                        className={cn(
+                          'rounded px-2 py-0.5 uppercase tracking-wider transition-colors',
+                          mapMode === 'google'
+                            ? 'bg-accent text-base-950 font-bold'
+                            : 'text-ink-400 hover:text-ink-200',
+                        )}
+                      >
+                        🗺️ Google Map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMapMode('schematic')}
+                        className={cn(
+                          'rounded px-2 py-0.5 uppercase tracking-wider transition-colors',
+                          mapMode === 'schematic'
+                            ? 'bg-accent text-base-950 font-bold'
+                            : 'text-ink-400 hover:text-ink-200',
+                        )}
+                      >
+                        ⚡ Schematic
+                      </button>
+                    </div>
+                    {filter !== 'ALL' && (
+                      <button type="button" className="btn-quiet text-2xs" onClick={() => setFilter('ALL')}>
+                        Clear filter
+                      </button>
+                    )}
+                  </div>
                 }
               >
-                <div className="h-[300px]">
-                  <NetworkMap trucks={visibleTrucks} incidents={incidents} flashIds={flashIds} flashTone={flashTone} />
+                <div className="h-[320px]">
+                  {mapMode === 'google' ? (
+                    <GoogleMapView
+                      trucks={visibleTrucks}
+                      selectedTruckId={selectedTruckId}
+                      onSelectTruck={setSelectedTruckId}
+                      height="100%"
+                    />
+                  ) : (
+                    <NetworkMap
+                      trucks={visibleTrucks}
+                      incidents={incidents}
+                      flashIds={flashIds}
+                      flashTone={flashTone}
+                      onSelectTruck={setSelectedTruckId}
+                    />
+                  )}
                 </div>
               </Panel>
 

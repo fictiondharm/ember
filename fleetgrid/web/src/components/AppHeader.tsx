@@ -14,6 +14,7 @@ const CONNECTION_COPY: Record<ConnectionStatus, { label: string; dot: string; te
 
 const MODES: Array<{ id: Mode; label: string; short: string }> = [
   { id: 'CONTROL_TOWER', label: 'Control Tower', short: 'Tower' },
+  { id: 'LIVE_MAP', label: 'Live GPS Map', short: 'Live Map' },
   { id: 'BUSINESS', label: 'Business', short: 'Business' },
   { id: 'DRIVER', label: 'Driver', short: 'Driver' },
 ];
@@ -60,23 +61,10 @@ export function AppHeader({ children }: AppHeaderProps) {
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-1.5 rounded-md border border-base-600 bg-base-850 p-0.5">
-          <a
-            href="http://localhost:5173"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded border border-healthy/40 bg-healthy/10 px-2.5 py-1 text-2xs font-semibold uppercase tracking-[0.1em] text-healthy transition-colors hover:bg-healthy/20"
-            title="Open Live Google Maps Telemetry View"
-          >
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-healthy opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-healthy" />
-            </span>
-            Live Map ↗
-          </a>
-          <div className="h-4 w-px bg-base-600" />
+        <div className="ml-auto flex items-center gap-1 rounded-md border border-base-600 bg-base-850 p-0.5">
           {MODES.map((m) => {
             const active = mode === m.id;
+            const isMap = m.id === 'LIVE_MAP';
             return (
               <button
                 key={m.id}
@@ -86,11 +74,23 @@ export function AppHeader({ children }: AppHeaderProps) {
                   void setMode(m.id).finally(() => setSwitching(false));
                 }}
                 className={cn(
-                  'rounded px-2.5 py-1.5 text-2xs font-semibold uppercase tracking-[0.1em] transition-colors',
-                  active ? 'bg-ink-50 text-base-950' : 'text-ink-400 hover:text-ink-100',
+                  'flex items-center gap-1.5 rounded px-2.5 py-1.5 text-2xs font-semibold uppercase tracking-[0.1em] transition-colors',
+                  active
+                    ? isMap
+                      ? 'bg-healthy text-base-950 shadow-sm'
+                      : 'bg-ink-50 text-base-950'
+                    : isMap
+                      ? 'text-healthy hover:bg-healthy/10'
+                      : 'text-ink-400 hover:text-ink-100',
                   switching && !active && 'opacity-60',
                 )}
               >
+                {isMap && (
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-healthy opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-healthy" />
+                  </span>
+                )}
                 {m.short}
               </button>
             );
