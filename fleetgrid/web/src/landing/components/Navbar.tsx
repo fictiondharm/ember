@@ -41,21 +41,35 @@ export default function Navbar() {
           ))}
         </ul>
 
-        <div className="hidden items-center gap-5 lg:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           <button
             type="button"
-            onClick={() => void setMode('CONTROL_TOWER')}
-            className="text-[13.5px] text-dim transition-colors hover:text-fg cursor-pointer"
+            onClick={() => void setMode('LIVE_MAP')}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-panel px-3 text-[12px] font-medium text-dim transition-colors hover:border-accent hover:text-accent cursor-pointer"
           >
-            Sign In
+            🗺️ Google Maps
+          </button>
+          <button
+            type="button"
+            onClick={() => void setMode('PAYMENTS')}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-panel px-3 text-[12px] font-medium text-dim transition-colors hover:border-healthy hover:text-healthy cursor-pointer"
+          >
+            💳 Payments Hub
+          </button>
+          <button
+            type="button"
+            onClick={() => void setMode('DRIVER')}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-panel px-3 text-[12px] font-medium text-dim transition-colors hover:border-warn hover:text-warn cursor-pointer"
+          >
+            🚚 Driver Cab
           </button>
           <button
             type="button"
             onClick={() => void setMode('CONTROL_TOWER')}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-panel px-3.5 text-[12px] font-medium uppercase tracking-[0.08em] transition-colors hover:border-faint hover:bg-raised cursor-pointer text-fg"
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-signal/50 bg-signal/10 px-3.5 text-[12px] font-medium uppercase tracking-[0.08em] text-signal transition-colors hover:bg-signal/20 cursor-pointer"
           >
             <span className="dot-live" aria-hidden />
-            Enter Control Tower
+            Control Tower
           </button>
         </div>
 

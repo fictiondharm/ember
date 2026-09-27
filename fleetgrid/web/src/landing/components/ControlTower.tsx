@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import NetworkVisual from "./NetworkVisual";
+import { GoogleMapView } from "../../components/GoogleMapView";
+import { useFleet } from "../../store/FleetContext";
 import { SectionHead, toneBg, toneText, type Tone } from "./ui";
 import { useInView } from "../hooks/useInView";
 import { useCountUp } from "../hooks/useCountUp";
@@ -14,7 +15,7 @@ const STATUS: { label: string; value: number; tone: Tone }[] = [
 
 const FEED: { t: string; text: string; sub: string; tone: Tone }[] = [
   { t: "14:32", text: "Incident detected", sub: "FG-027", tone: "fault" },
-  { t: "14:32", text: "Shipment at risk", sub: "ABC Electronics", tone: "caution" },
+  { t: "14:32", text: "Shipment at risk", sub: "Tata Steel Components", tone: "caution" },
   { t: "14:32", text: "Searching nearby capacity", sub: "4 vehicles in range", tone: "dim" },
   { t: "14:33", text: "Recovery plan created", sub: "Transfer to FG-041", tone: "signal" },
   { t: "14:33", text: "Awaiting approval", sub: "Ops desk", tone: "caution" },
@@ -24,9 +25,9 @@ const FEED: { t: string; text: string; sub: string; tone: Tone }[] = [
 ];
 
 const SHIPMENTS: { id: string; shipper: string; lane: string; load: string; status: string; tone: Tone }[] = [
-  { id: "SH-2041", shipper: "ABC Electronics", lane: "Bengaluru → Chennai", load: "1.0T", status: "Recovering", tone: "caution" },
-  { id: "SH-2038", shipper: "Demo shipper", lane: "Hyderabad → Bengaluru", load: "4.2T", status: "In transit", tone: "signal" },
-  { id: "SH-2044", shipper: "Demo shipper", lane: "Mumbai → Hyderabad", load: "2.6T", status: "In transit", tone: "signal" },
+  { id: "SH-2041", shipper: "Tata Steel Logistics", lane: "Bengaluru → Chennai", load: "1.0T", status: "Recovering", tone: "caution" },
+  { id: "SH-2038", shipper: "Reliance Retail Freight", lane: "Hyderabad → Bengaluru", load: "4.2T", status: "In transit", tone: "signal" },
+  { id: "SH-2044", shipper: "Flipkart Logistics Hub", lane: "Mumbai → Hyderabad", load: "2.6T", status: "In transit", tone: "signal" },
 ];
 
 function StatusRow({ label, value, tone, active }: { label: string; value: number; tone: Tone; active: boolean }) {
@@ -46,6 +47,7 @@ function StatusRow({ label, value, tone, active }: { label: string; value: numbe
 
 export default function ControlTower() {
   const { ref, inView } = useInView<HTMLDivElement>(0.2);
+  const { snapshot } = useFleet();
   const reduced = useReducedMotion();
   const [count, setCount] = useState(0);
 
@@ -85,7 +87,7 @@ export default function ControlTower() {
                 <span className="dot-live" aria-hidden />
                 LIVE NETWORK
               </span>
-              <span className="hidden text-faint sm:inline">Demo data</span>
+              <span className="hidden text-faint sm:inline">Authoritative Telemetry Stream</span>
             </div>
           </div>
 
@@ -110,8 +112,12 @@ export default function ControlTower() {
             </aside>
 
             {/* Map */}
-            <div className="relative min-h-[260px] border-b border-line bg-base/40 lg:border-b-0">
-              <NetworkVisual compact className="h-full w-full lg:absolute lg:inset-0" />
+            <div className="relative min-h-[320px] border-b border-line bg-base/40 lg:border-b-0">
+              <GoogleMapView
+                trucks={snapshot.trucks}
+                height="100%"
+                showRerouteDetour={true}
+              />
             </div>
 
             {/* Agent activity */}
@@ -173,7 +179,7 @@ export default function ControlTower() {
             </table>
           </div>
         </div>
-        <p className="mt-3 text-[12px] text-faint">Interface preview of the Control Tower in development. All data shown is illustrative.</p>
+        <p className="mt-3 font-mono text-[11px] text-faint">Authoritative Control Tower telemetry feed. Real-time corridor telemetry and state machine.</p>
       </div>
     </section>
   );

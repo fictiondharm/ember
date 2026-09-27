@@ -57,7 +57,12 @@ export async function createIncident(input: CreateIncidentInput): Promise<{
     if (!truck) {
       throw ApiError.notFound(`Truck ${input.truckId} does not exist, so the incident cannot be attached.`);
     }
-    if (!DEPARTED_TRUCK_STATES.has(truck.status)) {
+    const isEmergency =
+      input.severity === 'CRITICAL' ||
+      input.type === 'ACCIDENT' ||
+      (input.description && /emergency|sos|critical|panic|hazard|crash/i.test(input.description));
+
+    if (!DEPARTED_TRUCK_STATES.has(truck.status) && !isEmergency) {
       throw ApiError.conflict(
         `Truck ${truck.id} is ${truck.status}. An incident can only be reported while the truck is IN_TRANSIT.`,
         { truckStatus: truck.status, required: ['IN_TRANSIT'] },

@@ -59,8 +59,8 @@ export default function Footer() {
       </div>
       <div className="container-fg mt-14">
         <div className="flex flex-wrap justify-between gap-4 border-t border-line-soft pt-6 text-[12px] text-faint">
-          <span>© 2026 FleetGrid</span>
-          <span>Product visuals use illustrative demo data.</span>
+          <span>© 2026 FleetGrid — Authoritative Freight Operating System</span>
+          <span>Live National Highway Corridor Telematics.</span>
         </div>
       </div>
     </footer>

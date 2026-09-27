@@ -5,6 +5,7 @@ import { useFleet } from '../store/FleetContext';
 import { AppHeader } from '../components/AppHeader';
 import { Panel, Placeholder } from '../components/Panel';
 import { StatusPill } from '../components/Primitives';
+import { ElevenLabsVoiceAssistant } from '../components/ElevenLabsVoiceAssistant';
 import { cn, formatT, formatRelative } from '../lib/format';
 import { incidentTypeLabel, shipmentTone, truckTone } from '../lib/tone';
 import type { IncidentType, Driver as DriverType } from '../lib/types';
@@ -87,6 +88,7 @@ export function Driver() {
   const [error, setError] = useState<string | null>(null);
   const [reporting, setReporting] = useState(false);
   const [sosModalOpen, setSosModalOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [selectedSosReason, setSelectedSosReason] = useState(EMERGENCY_REASONS[0]?.id ?? 'engine_fire');
 
   const [incidentType, setIncidentType] = useState<IncidentType>('TRUCK_BREAKDOWN');
@@ -223,6 +225,7 @@ export function Driver() {
         truckId: truck.id,
         type: 'TRUCK_BREAKDOWN',
         location: loc,
+        severity: 'CRITICAL',
         description: `🚨 CRITICAL EMERGENCY SOS: Driver ${activeDriver?.name ?? 'Driver'} triggered panic beacon. ${reasonText}. Vehicle immobilized on highway. AI Corridor Reroute & Emergency Recovery requested immediately.`,
         ...(driverId ? { actorId: driverId } : {}),
       });
@@ -556,6 +559,16 @@ export function Driver() {
                 </button>
               )}
 
+              {/* ELEVENLABS AI VOICE CO-PILOT BUTTON */}
+              <button
+                type="button"
+                onClick={() => setVoiceOpen(true)}
+                className="group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-lg border-2 border-accent/60 bg-accent/15 py-3.5 font-mono text-xs font-bold uppercase tracking-wider text-accent shadow-md transition-all duration-200 hover:bg-accent hover:text-base-950 active:scale-[0.99] cursor-pointer"
+              >
+                <span className="text-lg">🎙️</span>
+                <span>AI Voice Assistant (ElevenLabs) — Speak to Book / Report</span>
+              </button>
+
               {/* EMERGENCY SOS PANIC TRIGGER (High visibility pulsing button) */}
               <button
                 type="button"
@@ -836,6 +849,14 @@ export function Driver() {
           </div>
         </div>
       )}
+
+      {/* ElevenLabs AI Voice Assistant Modal */}
+      <ElevenLabsVoiceAssistant
+        isOpen={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        truckId={truck?.id}
+        driverName={activeDriver?.name}
+      />
     </div>
   );
 }

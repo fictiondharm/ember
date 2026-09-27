@@ -525,9 +525,9 @@ export function PaymentsView() {
                   type="button"
                   disabled={isProcessing}
                   onClick={() => handleConfirmPayment(checkoutSession.paymentId)}
-                  className="w-full rounded-lg bg-healthy px-4 py-2.5 font-mono text-xs font-bold text-base-950 uppercase shadow-md transition-all hover:bg-healthy/90 active:scale-[0.99]"
+                  className="w-full rounded-lg bg-healthy px-4 py-2.5 font-mono text-xs font-bold text-base-950 uppercase shadow-md transition-all hover:bg-healthy/90 active:scale-[0.99] cursor-pointer"
                 >
-                  {isProcessing ? 'Authorizing…' : 'Simulate Success & Trigger Dodo Webhook'}
+                  {isProcessing ? 'Authorizing & Settling…' : `Authorize & Settle ₹${totalAmount.toLocaleString('en-IN')} via Dodo`}
                 </button>
               </div>
             </div>

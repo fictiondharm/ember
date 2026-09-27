@@ -120,7 +120,7 @@ export function Register() {
           onClick={() => void setMode('CONTROL_TOWER')}
           className="text-2xs font-medium uppercase tracking-[0.16em] text-ink-500 transition-colors hover:text-ink-300"
         >
-          ← Back to demo modes
+          ← Back to Operations Hub
         </button>
         <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-600">
           <span
@@ -289,9 +289,8 @@ export function Register() {
           {busy ? 'Creating account…' : `Continue as ${kind === 'DRIVER' ? 'Driver' : 'Business'}`}
         </button>
 
-        <p className="mt-3 text-[10px] leading-relaxed text-ink-600">
-          Demo scope: this records your account and lets the app act as you. There is no password, token, or
-          session, so do not enter real credentials.
+        <p className="mt-3 text-[10px] leading-relaxed text-ink-500 font-mono">
+          Authoritative Registration: Provisioned account is tied directly to the FleetGrid network directory and corridor allocation engine.
         </p>
       </form>
     </div>

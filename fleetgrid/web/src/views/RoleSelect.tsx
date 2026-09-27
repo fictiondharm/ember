@@ -12,25 +12,46 @@ const OPTIONS: Array<{
   points: string[];
 }> = [
   {
+    id: 'LANDING',
+    label: 'Landing Page',
+    kicker: 'Public',
+    description: 'Corporate overview with embedded interactive Google Maps corridor & agent loops.',
+    points: ['Corridor showcase', 'Live highway engine', 'Architecture blueprint'],
+  },
+  {
     id: 'CONTROL_TOWER',
     label: 'Control Tower',
     kicker: 'Operations',
-    description: 'Network-wide operational picture with the incident and recovery desk.',
-    points: ['Live network corridor', 'Fleet + capacity counters', 'Incident → analyze → approve → execute'],
+    description: 'Network-wide operational picture with the incident and autonomous recovery desk.',
+    points: ['Live network corridor', 'Fleet + capacity counters', 'Incident → approve → execute'],
+  },
+  {
+    id: 'LIVE_MAP',
+    label: 'Live Google Map',
+    kicker: 'Telematics',
+    description: 'Fullscreen interactive Google Maps slippy engine with live GPS vehicle heading & detours.',
+    points: ['Google Road & Satellite', 'Active vehicle rotations', 'Bypass rerouting corridor'],
+  },
+  {
+    id: 'PAYMENTS',
+    label: 'Dodo Payments Hub',
+    kicker: 'Escrow',
+    description: 'Carrier freight settlement via Dodo Payments gateway, instant receipts & audit ledger.',
+    points: ['Dodo live checkout', 'Instant escrow release', 'Verifiable crypt receipts'],
   },
   {
     id: 'BUSINESS',
-    label: 'Business',
+    label: 'Business Shipper',
     kicker: 'Shipper',
-    description: 'Find spare capacity on the corridor, reserve it, and track the shipment.',
-    points: ['Capacity search', 'Atomic reservation', 'Shipment timeline'],
+    description: 'Find spare capacity on the corridor, reserve it, and track shipments in real time.',
+    points: ['Capacity search & split-loads', 'Atomic reservation', 'Shipment timeline'],
   },
   {
     id: 'DRIVER',
-    label: 'Driver',
-    kicker: 'Cab',
-    description: 'Assigned truck, start the journey, and report a breakdown from the road.',
-    points: ['Start journey', 'Report incident', 'Status from server only'],
+    label: 'Driver Cab & SOS',
+    kicker: 'Driver',
+    description: 'In-cab dashboard with assigned load, emergency SOS panic beacon & ElevenLabs AI voice.',
+    points: ['Start journey', 'Critical Emergency SOS', 'ElevenLabs Voice Booking'],
   },
 ];
 
@@ -41,7 +62,7 @@ export function RoleSelect() {
 
   return (
     <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-10">
-      <div className="w-full max-w-4xl">
+      <div className="w-full max-w-5xl">
         <div className="flex flex-col items-center text-center">
           <div className="grid h-11 w-11 place-items-center rounded-md border border-healthy/30 bg-healthy/10">
             <svg viewBox="0 0 24 24" className="h-6 w-6 text-healthy" fill="none" aria-hidden="true">
@@ -52,11 +73,10 @@ export function RoleSelect() {
           </div>
           <h1 className="mt-4 text-2xl font-semibold tracking-tight text-ink-50">FleetGrid</h1>
           <p className="mt-1.5 text-2xs font-medium uppercase tracking-[0.2em] text-ink-500">
-            AI Logistics Network
+            Autonomous Freight Operating System
           </p>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-400">
-            One application, three modes, one shared server-side state. Open this page on three laptops, pick a
-            different mode on each, and watch changes propagate instantly.
+          <p className="mt-3 max-w-lg text-sm leading-relaxed text-ink-400">
+            Unified multi-portal platform connected to the live corridor state engine. Select a portal to begin.
           </p>
         </div>
 
@@ -66,7 +86,7 @@ export function RoleSelect() {
           </div>
         )}
 
-        <div className="mt-8 grid gap-3 sm:grid-cols-3">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {OPTIONS.map((option) => (
             <button
               key={option.id}

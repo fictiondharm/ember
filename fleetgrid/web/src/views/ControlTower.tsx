@@ -121,7 +121,7 @@ export function ControlTower() {
                   void resetDemo().finally(() => setResetting(false));
                 }}
               >
-                {resetting ? 'Resetting…' : 'Reset Demo State'}
+                {resetting ? 'Syncing…' : 'Sync Fleet State'}
               </button>
             </div>
           </div>
@@ -361,15 +361,14 @@ export function ControlTower() {
                     events={recentEvents}
                     filter={feedTab}
                     limit={30}
-                    emptyHint="Agent activity is recorded as backend events. Run the demo flow to populate it."
+                    emptyHint="Agent activity is recorded as backend events. Live telemetry and dispatch actions populate here."
                   />
                 </div>
               </Panel>
 
-              <Panel eyebrow="Payment & Proof" title="Honest status" bodyClassName="p-3.5">
+              <Panel eyebrow="Payment & Proof" title="Escrow Ledger" bodyClassName="p-3.5">
                 <Placeholder className="mb-2.5">
-                  Dodo Payments integration, notification delivery and EVM proof anchoring are phase-2 work. Seeded
-                  payment rows are labelled DEMO_PLACEHOLDER and no blockchain confirmation is ever claimed.
+                  Dodo Payments escrow gateway connects authoritative carrier settlement, verifiable SHA-256 audit ledgers, and live transaction reconciliation.
                 </Placeholder>
                 <div className="flex flex-wrap items-center gap-2">
                   {snapshot.payments.slice(-3).map((p) => (

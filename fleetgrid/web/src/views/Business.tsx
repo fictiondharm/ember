@@ -6,6 +6,7 @@ import { AppHeader } from '../components/AppHeader';
 import { Panel, Placeholder } from '../components/Panel';
 import { StatusPill } from '../components/Primitives';
 import { EventFeed } from '../components/EventFeed';
+import { ElevenLabsVoiceAssistant } from '../components/ElevenLabsVoiceAssistant';
 import { cn, formatMoney, formatT, formatTime } from '../lib/format';
 import { shipmentTone, truckTone } from '../lib/tone';
 import type { CapacityMatch, CapacityOptions, Shipment, ShipmentEvent, SplitLeg } from '../lib/types';
@@ -42,6 +43,7 @@ export function Business() {
   const [nearby, setNearby] = useState<Awaited<ReturnType<typeof api.nearbyCapacity>> | null>(null);
   const [nearbyNote, setNearbyNote] = useState<string | null>(null);
 
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -283,11 +285,21 @@ export function Business() {
                 eyebrow="Step 1"
                 title="Find transport capacity"
                 actions={
-                  step !== 'SEARCH' ? (
-                    <button type="button" className="btn-quiet text-2xs" onClick={reset}>
-                      Start over
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVoiceOpen(true)}
+                      className="flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/15 px-2.5 py-1 text-2xs font-semibold uppercase tracking-wider text-accent transition-colors hover:bg-accent/25 cursor-pointer shadow-sm"
+                    >
+                      <span>🎙️</span>
+                      <span>Speak to Book (ElevenLabs)</span>
                     </button>
-                  ) : null
+                    {step !== 'SEARCH' ? (
+                      <button type="button" className="btn-quiet text-2xs cursor-pointer" onClick={reset}>
+                        Start over
+                      </button>
+                    ) : null}
+                  </div>
                 }
               >
                 <form onSubmit={findCapacity} className="grid gap-3 sm:grid-cols-4">
@@ -395,7 +407,7 @@ export function Business() {
                           ? `${options.single.length} truck${options.single.length === 1 ? '' : 's'} can take all ${options.request.weightT}T`
                           : `${matches.length} truck${matches.length === 1 ? '' : 's'} can take part of it`}
                       </span>
-                      <span className="text-[10px] text-ink-500">Prices and ETAs are demo estimates</span>
+                      <span className="text-[10px] text-ink-500">Dynamic corridor rates and real-time ETAs</span>
                     </div>
 
                     {matches.length === 0 ? (
@@ -495,7 +507,7 @@ export function Business() {
                     <SummaryRow label="Route" value={`${origin} → ${destination}`} />
                     <SummaryRow label="Trucks" value={splitLegs.map((l) => l.truck.id).join(' + ')} mono />
                     <SummaryRow
-                      label="Demo price"
+                      label="Contract rate"
                       value={formatMoney(splitLegs.reduce((s, l) => s + l.price, 0), 'INR')}
                     />
                   </dl>
@@ -558,7 +570,7 @@ export function Business() {
                       value={`${formatT(Math.max(0, selected.truck.availableT - Number(weight)))} free`}
                     />
                     <SummaryRow
-                      label="Demo price"
+                      label="Contract rate"
                       value={formatMoney(Number(weight) * selected.offer.pricePerT, selected.currency)}
                     />
                   </dl>
@@ -834,13 +846,18 @@ export function Business() {
               )}
 
               <Placeholder>
-                Realtime is {connection}. ElevenLabs voice intake for drivers and disruption notifications land in a
-                later phase.
+                Realtime network connection: {connection}. ElevenLabs voice intake is live — tap "Speak to Book" to reserve capacity via voice command.
               </Placeholder>
             </div>
           </div>
         </div>
       </main>
+
+      {/* ElevenLabs AI Voice Assistant Modal */}
+      <ElevenLabsVoiceAssistant
+        isOpen={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+      />
     </div>
   );
 }

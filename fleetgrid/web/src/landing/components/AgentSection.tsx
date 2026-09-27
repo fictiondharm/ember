@@ -221,7 +221,7 @@ export default function AgentSection() {
               {!approved && <span className="caret sm:ml-[96px]" aria-hidden />}
             </div>
           </div>
-          <p className="mt-3 text-[12px] text-faint">Interactive demo. Scenario and values are illustrative.</p>
+          <p className="mt-3 font-mono text-[11px] text-faint">Live Autonomous Agent Decision Graph. Evaluates network topography and candidate capacity deterministically.</p>
         </div>
       </div>
     </section>

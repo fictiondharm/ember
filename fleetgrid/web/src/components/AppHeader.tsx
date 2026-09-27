@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { cn } from '../lib/format';
 import { BACKEND_LABEL } from '../lib/config';
 import { useFleet } from '../store/FleetContext';
+import { ElevenLabsVoiceAssistant } from './ElevenLabsVoiceAssistant';
 import type { ConnectionStatus } from '../lib/realtime';
 import type { Mode } from '../lib/types';
 
@@ -28,6 +29,7 @@ interface AppHeaderProps {
 export function AppHeader({ children }: AppHeaderProps) {
   const { connection, mode, setMode, lastEvent } = useFleet();
   const [switching, setSwitching] = useState(false);
+  const [voiceAssistantOpen, setVoiceAssistantOpen] = useState(false);
   const copy = CONNECTION_COPY[connection];
 
   return (
@@ -68,6 +70,16 @@ export function AppHeader({ children }: AppHeaderProps) {
           </div>
         )}
 
+        <button
+          type="button"
+          onClick={() => setVoiceAssistantOpen(true)}
+          className="flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-3 py-1.5 text-2xs font-semibold uppercase tracking-[0.1em] text-accent transition-colors hover:bg-accent/20 cursor-pointer shadow-sm"
+          title="Open ElevenLabs AI Voice Assistant"
+        >
+          <span className="text-sm">🎙️</span>
+          <span>AI Voice</span>
+        </button>
+
         <div className="ml-auto flex items-center gap-1 rounded-md border border-base-600 bg-base-850 p-0.5">
           {MODES.map((m) => {
             const active = mode === m.id;
@@ -81,7 +93,7 @@ export function AppHeader({ children }: AppHeaderProps) {
                   void setMode(m.id).finally(() => setSwitching(false));
                 }}
                 className={cn(
-                  'flex items-center gap-1.5 rounded px-2.5 py-1.5 text-2xs font-semibold uppercase tracking-[0.1em] transition-colors',
+                  'flex items-center gap-1.5 rounded px-2.5 py-1.5 text-2xs font-semibold uppercase tracking-[0.1em] transition-colors cursor-pointer',
                   active
                     ? isMap
                       ? 'bg-healthy text-base-950 shadow-sm'
@@ -105,6 +117,11 @@ export function AppHeader({ children }: AppHeaderProps) {
         </div>
       </div>
       {children}
+
+      <ElevenLabsVoiceAssistant
+        isOpen={voiceAssistantOpen}
+        onClose={() => setVoiceAssistantOpen(false)}
+      />
     </header>
   );
 }

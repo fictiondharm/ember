@@ -1,11 +1,33 @@
 import { createServer } from 'node:http';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import cors from 'cors';
 import express from 'express';
-import { config } from './config.js';
+import { config, serverRoot } from './config.js';
 import { ensureSeeded } from './services/demo.js';
 import { hub } from './services/realtime.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { buildRouter, ENDPOINT_INDEX } from './routes/index.js';
+
+// Auto-load .env file into process.env
+const envPath = resolve(serverRoot, '.env');
+if (existsSync(envPath)) {
+  try {
+    const lines = readFileSync(envPath, 'utf8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx > 0) {
+        const key = trimmed.slice(0, idx).trim();
+        const val = trimmed.slice(idx + 1).trim();
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  } catch {}
+}
 
 export function createApp(): express.Express {
   const app = express();
