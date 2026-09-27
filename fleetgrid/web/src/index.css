@@ -1,0 +1,123 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-base-950 text-ink-100 font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Subtle grid + radial wash: the "operations room" texture. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 100% 70% at 50% 0%, black 20%, transparent 78%);
+  }
+
+  ::selection {
+    background: rgba(61, 220, 151, 0.28);
+  }
+
+  *:focus-visible {
+    outline: 1px solid rgba(61, 220, 151, 0.7);
+    outline-offset: 2px;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-base-600 bg-base-800/90 shadow-panel backdrop-blur-[2px];
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-base-600 px-4 py-3;
+  }
+
+  .eyebrow {
+    @apply text-2xs font-medium uppercase tracking-[0.14em] text-ink-400;
+  }
+
+  .label {
+    @apply mb-1.5 block text-2xs font-medium uppercase tracking-[0.12em] text-ink-400;
+  }
+
+  .field {
+    @apply w-full rounded-md border border-base-600 bg-base-900 px-3 py-2.5 text-sm text-ink-50
+           placeholder:text-ink-500 transition-colors
+           focus:border-healthy/60 focus:outline-none focus:ring-0;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium
+           transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply btn bg-healthy text-base-950 hover:bg-[#4DE8A6] active:translate-y-px;
+    box-shadow: 0 0 0 1px rgba(61, 220, 151, 0.35), 0 8px 30px -14px rgba(61, 220, 151, 0.9);
+  }
+
+  .btn-danger {
+    @apply btn bg-danger text-base-950 hover:bg-[#FF7373] active:translate-y-px;
+    box-shadow: 0 0 0 1px rgba(255, 91, 91, 0.4), 0 8px 30px -14px rgba(255, 91, 91, 0.9);
+  }
+
+  .btn-ghost {
+    @apply btn border border-base-600 bg-base-850 text-ink-200 hover:border-base-500 hover:text-ink-50;
+  }
+
+  .btn-quiet {
+    @apply btn text-ink-300 hover:text-ink-50;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #24272f;
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #343845;
+  }
+}
