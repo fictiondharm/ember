@@ -472,37 +472,37 @@ export function ElevenLabsVoiceAssistant({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base-950/80 p-4 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-xl rounded-2xl border border-accent/40 bg-base-900 shadow-[0_20px_70px_rgba(0,0,0,0.8)] overflow-hidden">
-        {/* Glow Header */}
-        <div className="relative border-b border-base-700 bg-base-850 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-accent/20 border border-accent/40 text-accent">
-              <span className="text-xl">🎙️</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base-950/85 p-2 sm:p-4 backdrop-blur-md animate-fade-in">
+      <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-2xl border border-accent/40 bg-base-900 shadow-[0_20px_70px_rgba(0,0,0,0.8)] overflow-hidden">
+        {/* Glow Header - Compact */}
+        <div className="relative shrink-0 border-b border-base-700 bg-base-850 px-4 py-2.5 sm:px-5 sm:py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="relative flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-accent/20 border border-accent/40 text-accent">
+              <span className="text-base sm:text-lg">🎙️</span>
               {isListening && (
-                <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-danger animate-ping" />
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-danger animate-ping" />
               )}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-mono text-sm font-bold text-ink-50">
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-mono text-xs sm:text-sm font-bold text-ink-50">
                   ElevenLabs AI Voice Co-Pilot
                 </h3>
-                <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-3xs font-semibold text-accent">
+                <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.2 font-mono text-3xs font-semibold text-accent">
                   Cab & Booking
                 </span>
               </div>
-              <p className="text-2xs text-ink-400">
-                Driver Cab: <span className="font-mono text-ink-200">{truckId}</span> ({driverName})
+              <p className="text-3xs text-ink-400">
+                Cab: <span className="font-mono text-ink-200">{truckId}</span> ({driverName})
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={handleTestAudio}
-              className="rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 font-mono text-3xs font-semibold text-accent hover:bg-accent/20 transition-colors cursor-pointer"
+              className="rounded-lg border border-accent/40 bg-accent/10 px-2 py-1 font-mono text-3xs font-semibold text-accent hover:bg-accent/20 transition-colors cursor-pointer"
               title="Test Speaker & Audio Output"
             >
               🔊 Test Sound
@@ -510,7 +510,7 @@ export function ElevenLabsVoiceAssistant({
             <button
               type="button"
               onClick={() => setShowSettings(!showSettings)}
-              className="rounded-lg border border-base-700 bg-base-900 p-2 text-ink-400 hover:text-ink-100 hover:border-base-600 transition-colors cursor-pointer"
+              className="rounded-lg border border-base-700 bg-base-900 p-1.5 text-ink-400 hover:text-ink-100 hover:border-base-600 transition-colors cursor-pointer text-xs"
               title="ElevenLabs Settings"
             >
               ⚙️
@@ -518,7 +518,7 @@ export function ElevenLabsVoiceAssistant({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-base-700 bg-base-900 p-2 text-ink-400 hover:text-ink-100 hover:border-base-600 transition-colors cursor-pointer"
+              className="rounded-lg border border-base-700 bg-base-900 p-1.5 text-ink-400 hover:text-ink-100 hover:border-base-600 transition-colors cursor-pointer text-xs"
             >
               ✕
             </button>
@@ -527,21 +527,21 @@ export function ElevenLabsVoiceAssistant({
 
         {/* ElevenLabs API Settings Panel */}
         {showSettings && (
-          <div className="border-b border-base-700 bg-base-950 p-4 space-y-3 font-mono text-xs">
+          <div className="shrink-0 border-b border-base-700 bg-base-950 p-3 sm:p-4 space-y-2.5 font-mono text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-2xs font-semibold uppercase tracking-wider text-ink-300">
+              <span className="text-3xs font-semibold uppercase tracking-wider text-ink-300">
                 ElevenLabs Neural Voice Configuration
               </span>
               <span className="text-3xs text-healthy">Optional / Auto-fallback active</span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               <label className="block text-3xs uppercase text-ink-400">ElevenLabs API Key</label>
               <input
                 type="password"
                 placeholder="Enter xi-api-key (e.g. 8fa7...)"
                 value={apiKey}
                 onChange={(e) => saveApiKey(e.target.value)}
-                className="w-full rounded-md border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-100 focus:border-accent focus:outline-none"
+                className="w-full rounded-md border border-base-700 bg-base-900 px-2.5 py-1 text-xs text-ink-100 focus:border-accent focus:outline-none"
               />
             </div>
             <div className="space-y-1">
@@ -549,7 +549,7 @@ export function ElevenLabsVoiceAssistant({
               <select
                 value={voiceId}
                 onChange={(e) => setVoiceId(e.target.value)}
-                className="w-full rounded-md border border-base-700 bg-base-900 px-3 py-1.5 text-xs text-ink-100 focus:border-accent focus:outline-none cursor-pointer"
+                className="w-full rounded-md border border-base-700 bg-base-900 px-2.5 py-1 text-xs text-ink-100 focus:border-accent focus:outline-none cursor-pointer"
               >
                 {ELEVENLABS_VOICES.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -558,22 +558,18 @@ export function ElevenLabsVoiceAssistant({
                 ))}
               </select>
             </div>
-            <div className="flex items-center justify-between text-3xs text-ink-500">
-              <span>Model: Multilingual v2</span>
-              <span>Audio: MP3 44.1kHz</span>
-            </div>
           </div>
         )}
 
-        {/* Voice Visualizer / Centerpiece */}
-        <div className="p-6 text-center space-y-5">
-          {/* Animated Waveform Visualizer */}
-          <div className="mx-auto flex h-24 w-full max-w-sm items-center justify-center gap-1.5 rounded-xl border border-base-800 bg-base-950/70 p-4">
+        {/* Scrollable Modal Content Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 text-center custom-scrollbar">
+          {/* Animated Waveform Visualizer - Compact */}
+          <div className="mx-auto flex h-12 sm:h-14 w-full max-w-xs items-center justify-center gap-1.5 rounded-xl border border-base-800 bg-base-950/70 px-3 py-2">
             {[40, 75, 55, 90, 60, 100, 70, 85, 45, 95, 65, 80, 50, 70].map((h, i) => (
               <span
                 key={i}
                 className={cn(
-                  'w-1.5 rounded-full transition-all duration-150',
+                  'w-1 rounded-full transition-all duration-150',
                   isListening
                     ? 'bg-danger animate-pulse'
                     : isSpeaking
@@ -583,7 +579,7 @@ export function ElevenLabsVoiceAssistant({
                     : 'bg-base-700',
                 )}
                 style={{
-                  height: isListening || isSpeaking ? `${(h * (isSpeaking ? 0.9 : 0.7)).toFixed(0)}%` : '15%',
+                  height: isListening || isSpeaking ? `${(h * (isSpeaking ? 0.9 : 0.7)).toFixed(0)}%` : '20%',
                   animationDelay: `${i * 60}ms`,
                 }}
               />
@@ -592,29 +588,29 @@ export function ElevenLabsVoiceAssistant({
 
           {/* Status Label */}
           <div>
-            <div className="font-mono text-xs font-semibold uppercase tracking-wider">
+            <div className="font-mono text-3xs sm:text-2xs font-semibold uppercase tracking-wider">
               {isListening ? (
-                <span className="text-danger flex items-center justify-center gap-2">
+                <span className="text-danger flex items-center justify-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-danger animate-ping" />
-                  Listening to microphone… Speak now! (Auto-executes on pause)
+                  Listening… Speak now (Auto-executes on pause)
                 </span>
               ) : isProcessing ? (
-                <span className="text-warn flex items-center justify-center gap-2">
+                <span className="text-warn flex items-center justify-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-warn animate-spin" />
                   Processing voice command & executing action…
                 </span>
               ) : isSpeaking ? (
-                <span className="text-accent flex items-center justify-center gap-2">
+                <span className="text-accent flex items-center justify-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
                   {engineUsed === 'ELEVENLABS' ? 'ElevenLabs Neural TTS Speaking…' : 'AI Voice Assistant Speaking…'}
                 </span>
               ) : (
-                <span className="text-ink-400">Click the microphone to speak, or tap a command below</span>
+                <span className="text-ink-400">Click microphone to speak, or tap a command below</span>
               )}
             </div>
 
             {/* Transcript Preview & Manual Input */}
-            <div className="mt-3 flex gap-2">
+            <div className="mt-2.5 flex gap-1.5">
               <input
                 type="text"
                 value={transcript}
@@ -627,14 +623,14 @@ export function ElevenLabsVoiceAssistant({
                     void processVoiceCommand(transcript);
                   }
                 }}
-                placeholder={isListening ? 'Listening… your speech will appear here' : 'Speak into mic, or type voice command here and hit Send…'}
-                className="flex-1 rounded-lg border border-base-700 bg-base-850 px-3 py-2 font-mono text-xs text-ink-100 placeholder:text-ink-500 focus:border-accent focus:outline-none"
+                placeholder={isListening ? 'Listening… speech will appear here' : 'Speak into mic, or type command here…'}
+                className="flex-1 rounded-lg border border-base-700 bg-base-850 px-2.5 py-1.5 font-mono text-xs text-ink-100 placeholder:text-ink-500 focus:border-accent focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => void processVoiceCommand(transcript)}
                 disabled={!transcript.trim() || isProcessing}
-                className="rounded-lg border border-accent bg-accent/20 px-3 py-2 font-mono text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                className="rounded-lg border border-accent bg-accent/20 px-3 py-1.5 font-mono text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 Send ↵
               </button>
@@ -642,8 +638,8 @@ export function ElevenLabsVoiceAssistant({
 
             {/* AI Confirmation Spoken Reply Box */}
             {aiResponse && (
-              <div className="mt-3 rounded-lg border border-healthy/40 bg-healthy/10 p-3 font-mono text-xs text-healthy text-left animate-fade-in">
-                <div className="flex items-center gap-1.5 text-3xs font-bold uppercase tracking-wider text-healthy mb-1">
+              <div className="mt-2.5 rounded-lg border border-healthy/40 bg-healthy/10 p-2.5 font-mono text-xs text-healthy text-left animate-fade-in">
+                <div className="flex items-center gap-1.5 text-3xs font-bold uppercase tracking-wider text-healthy mb-0.5">
                   <span>✓ Spoken AI Response & Action</span>
                   <button
                     type="button"
@@ -653,18 +649,18 @@ export function ElevenLabsVoiceAssistant({
                     🔊 Replay Audio
                   </button>
                 </div>
-                <div className="text-ink-100">{aiResponse}</div>
+                <div className="text-ink-100 text-xs leading-relaxed">{aiResponse}</div>
               </div>
             )}
           </div>
 
-          {/* Main Action Push-To-Talk Button */}
-          <div className="flex justify-center items-center gap-4">
+          {/* Main Action Push-To-Talk Button - Compact */}
+          <div className="flex justify-center items-center gap-3 pt-1">
             <button
               type="button"
               onClick={isListening ? stopListening : startListening}
               className={cn(
-                'group relative flex h-16 w-16 items-center justify-center rounded-full text-2xl shadow-xl transition-all active:scale-95 cursor-pointer',
+                'group relative flex h-13 w-13 sm:h-14 sm:w-14 items-center justify-center rounded-full text-xl shadow-xl transition-all active:scale-95 cursor-pointer',
                 isListening
                   ? 'bg-danger text-white shadow-danger/40 ring-4 ring-danger/30 animate-pulse'
                   : 'bg-accent text-base-950 shadow-accent/40 hover:bg-accent/90 ring-4 ring-accent/20',
@@ -677,20 +673,20 @@ export function ElevenLabsVoiceAssistant({
             {isListening ? 'Tap to Finish Speaking & Send' : 'Tap to Start Speaking'}
           </div>
 
-          {/* Quick Voice Command Chips */}
+          {/* Quick Voice Command Chips - Compact */}
           <div className="pt-2 border-t border-base-800 text-left">
-            <span className="font-mono text-3xs font-semibold uppercase tracking-wider text-ink-400 block mb-2">
+            <span className="font-mono text-3xs font-semibold uppercase tracking-wider text-ink-400 block mb-1.5">
               Quick Driver & Booking Commands (One-Tap Test):
             </span>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1.5 sm:grid-cols-2">
               {QUICK_VOICE_COMMANDS.map((cmd) => (
                 <button
                   key={cmd.label}
                   type="button"
                   onClick={() => handleQuickCommand(cmd.text)}
-                  className="rounded-lg border border-base-700 bg-base-850 p-2.5 text-left text-xs font-mono text-ink-300 transition-all hover:border-accent hover:bg-base-800 hover:text-ink-100 cursor-pointer"
+                  className="rounded-lg border border-base-700 bg-base-850 p-2 text-left text-xs font-mono text-ink-300 transition-all hover:border-accent hover:bg-base-800 hover:text-ink-100 cursor-pointer"
                 >
-                  <div className="font-semibold text-ink-100">{cmd.label}</div>
+                  <div className="font-semibold text-ink-100 text-2xs truncate">{cmd.label}</div>
                   <div className="mt-0.5 truncate text-3xs text-ink-500">{cmd.text}</div>
                 </button>
               ))}
@@ -698,10 +694,10 @@ export function ElevenLabsVoiceAssistant({
           </div>
         </div>
 
-        {/* Footer Note */}
-        <div className="border-t border-base-800 bg-base-950/80 px-6 py-2.5 text-center font-mono text-3xs text-ink-500 flex items-center justify-between">
+        {/* Footer Note - Compact */}
+        <div className="shrink-0 border-t border-base-800 bg-base-950/90 px-4 py-2 text-center font-mono text-3xs text-ink-500 flex items-center justify-between">
           <span>ElevenLabs Speech Model: Multilingual v2</span>
-          <span>Automatic Web Speech Synthesis Fallback</span>
+          <span>Automatic Web Speech API Fallback</span>
         </div>
       </div>
     </div>
