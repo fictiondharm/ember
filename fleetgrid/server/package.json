@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "dodopayments": "^2.52.0",
     "express": "^4.19.2",
     "fleetgrid-root": "file:../..",
     "ws": "^8.18.0",
