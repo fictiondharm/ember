@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   FleetGrid design tokens — change colors & typography here.
+   Every color / font utility (bg-base, text-signal, font-mono …)
+   and every SVG in the network visual reads from these variables.
+------------------------------------------------------------------- */
+@theme static {
+  --color-base: #07090d;      /* page background */
+  --color-raised: #0d1016;    /* secondary surfaces */
+  --color-panel: #11151c;     /* cards / app panels */
+  --color-line: #252a33;      /* borders */
+  --color-line-soft: #181c24; /* inner hairlines */
+  --color-route: #2c333e;     /* idle network routes */
+  --color-fg: #f5f7fa;        /* primary text */
+  --color-dim: #8b93a1;       /* secondary text */
+  --color-faint: #5a6270;     /* tertiary text */
+  --color-signal: #3be39b;    /* healthy / active */
+  --color-caution: #f2b33d;   /* warnings */
+  --color-fault: #f0544f;     /* incidents only */
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-base);
+    color: var(--color-fg);
+    scroll-behavior: smooth;
+    scroll-padding-top: 84px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-base);
+    font-feature-settings: "ss01", "cv11";
+  }
+  ::selection { background: color-mix(in srgb, var(--color-signal) 30%, transparent); }
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
+}
+
+@layer components {
+  .container-fg { width: 100%; max-width: 1240px; margin-inline: auto; padding-inline: 1.25rem; }
+  @media (min-width: 640px) { .container-fg { padding-inline: 2rem; } }
+
+  .display {
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 0.96;
+    text-wrap: balance;
+  }
+  .h2 {
+    font-size: clamp(2.1rem, 4.6vw, 3.9rem);
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    text-wrap: balance;
+  }
+  .lede { color: var(--color-dim); font-size: 1.0625rem; line-height: 1.6; max-width: 36rem; text-wrap: pretty; }
+  .tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.8s cubic-bezier(.2,.7,.2,1), transform 0.8s cubic-bezier(.2,.7,.2,1); }
+  .reveal.is-in { opacity: 1; transform: none; }
+
+  .dot-live { position: relative; display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: var(--color-signal); }
+  .dot-live::after { content: ""; position: absolute; inset: -4px; border-radius: 999px; border: 1px solid var(--color-signal); animation: ring 2.2s ease-out infinite; }
+
+  .node-ring { transform-box: fill-box; transform-origin: center; animation: node 3.2s ease-out infinite; }
+  .node-ring-fast { transform-box: fill-box; transform-origin: center; animation: node 1.4s ease-out infinite; }
+  .caret { display: inline-block; width: 7px; height: 14px; background: var(--color-signal); vertical-align: -2px; animation: blink 1s steps(2) infinite; }
+  .feed-in { animation: feedin 0.5s cubic-bezier(.2,.7,.2,1); }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--color-line) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--color-line) 45%, transparent) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+}
+
+@keyframes ring { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(2.2); opacity: 0; } }
+@keyframes node { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(3.2); opacity: 0; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes feedin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
