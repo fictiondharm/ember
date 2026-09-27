@@ -16,6 +16,9 @@ import argparse
 # Ensure app is importable
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 os.environ.setdefault("DATABASE_URL", "sqlite:///./fleetgrid.db")
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 
 from app.config import settings
 from app.database import engine, SessionLocal, test_connection, Base

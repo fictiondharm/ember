@@ -8,11 +8,14 @@ from app.models.incident import Incident, RecoveryPlan
 from app.models.payment import Payment
 from app.models.notification import Notification
 
+from app.database import Base
+
 def seed_demo_database(db: Session):
     """
     Seeds database with deterministic demo state per PRD Section 17.
     Clears previous dynamic data and initializes Golden Demo baseline.
     """
+    Base.metadata.create_all(bind=db.get_bind())
     # Clear in reverse foreign key order
     db.query(ShipmentEvent).delete()
     db.query(Payment).delete()
@@ -26,6 +29,7 @@ def seed_demo_database(db: Session):
     db.query(Organization).delete()
     db.query(Notification).delete()
     db.commit()
+
 
     now = datetime.utcnow()
     departure_time = now + timedelta(hours=2)

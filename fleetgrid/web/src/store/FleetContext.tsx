@@ -44,6 +44,9 @@ const REFETCH_EVENTS: ReadonlySet<RealtimeEventType> = new Set<RealtimeEventType
 ]);
 
 const MODE_STORAGE_KEY = 'fleetgrid.mode';
+const THEME_STORAGE_KEY = 'fleetgrid.theme';
+
+export type Theme = 'dark' | 'light';
 
 interface FleetContextValue {
   snapshot: FleetSnapshot;
@@ -51,6 +54,8 @@ interface FleetContextValue {
   error: string | null;
   connection: ConnectionStatus;
   mode: Mode | null;
+  theme: Theme;
+  toggleTheme: () => void;
   session: DemoLoginResponse | null;
   lastEvent: { type: string; at: number } | null;
   /** Highlights rows touched by the most recent realtime event. */
@@ -80,10 +85,25 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setModeState] = useState<Mode | null>(() => readStoredMode());
+  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme());
   const [session, setSession] = useState<DemoLoginResponse | null>(null);
   const [lastEvent, setLastEvent] = useState<{ type: string; at: number } | null>(null);
   const [flashIds, setFlashIds] = useState<string[]>([]);
   const [flashTone, setFlashTone] = useState<FlashKind>('ok');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
+
 
   const pendingRef = useRef<number | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -205,6 +225,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     error,
     connection,
     mode,
+    theme,
+    toggleTheme,
     session,
     lastEvent,
     flashIds,
@@ -234,3 +256,14 @@ function readStoredMode(): Mode | null {
   }
   return null;
 }
+
+function readStoredTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === 'light' || stored === 'dark') return stored;
+  } catch {
+    /* ignore */
+  }
+  return 'dark';
+}
+

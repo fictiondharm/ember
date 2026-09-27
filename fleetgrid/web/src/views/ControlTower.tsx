@@ -61,20 +61,21 @@ export function ControlTower() {
 
       <main className="px-4 py-4 lg:px-6">
         <div className="mx-auto max-w-[1600px] space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-base-600 pb-4">
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-ink-50">Network Control</h1>
-              <p className="mt-0.5 text-xs text-ink-400">
+              <div className="text-3xs font-mono font-bold uppercase tracking-[0.2em] text-swiss-red">01. CONTROL TOWER</div>
+              <h1 className="mt-1 text-2xl font-black uppercase tracking-tight text-white font-sans">NETWORK CONTROL</h1>
+              <p className="mt-1 text-xs font-mono text-ink-300">
                 Live operational picture across {trucks.length} trucks ·{' '}
                 {snapshot.generatedAt ? `server state ${formatTime(snapshot.generatedAt)}` : 'loading…'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {session && (
-                <div className="hidden items-center gap-2 rounded-md border border-base-600 bg-base-850 px-3 py-1.5 text-2xs text-ink-400 sm:flex">
-                  <span className="text-ink-200">{session.user.name}</span>
-                  <span className="text-ink-600">·</span>
-                  <span>{session.organization?.name}</span>
+                <div className="hidden items-center gap-2 border-2 border-base-600 bg-base-900 px-3.5 py-1.5 font-mono text-2xs text-ink-300 sm:flex rounded-none">
+                  <span className="font-bold text-white uppercase">{session.user.name}</span>
+                  <span className="text-swiss-red font-bold">·</span>
+                  <span className="uppercase">{session.organization?.name}</span>
                 </div>
               )}
               <button
@@ -86,38 +87,38 @@ export function ControlTower() {
                   void resetDemo().finally(() => setResetting(false));
                 }}
               >
-                {resetting ? 'Resetting…' : 'Reset Demo State'}
+                {resetting ? 'RESETTING…' : 'RESET DEMO STATE'}
               </button>
             </div>
           </div>
 
           {error && (
-            <div className="rounded-md border border-danger/40 bg-danger/10 px-3.5 py-2.5 text-xs text-danger">
-              <span className="font-semibold">Server unreachable. </span>
+            <div className="border-2 border-swiss-red bg-swiss-red/10 px-4 py-3 text-xs font-mono font-bold uppercase tracking-wider text-swiss-red rounded-none">
+              <span className="font-black">[ERROR] Server unreachable: </span>
               {error}
             </div>
           )}
 
           {connection !== 'live' && !error && (
-            <div className="rounded-md border border-warn/35 bg-warn/[0.07] px-3.5 py-2.5 text-xs text-warn">
-              Realtime {connection}. Displayed state may be stale — it will resync automatically.
+            <div className="border-2 border-warn bg-warn/10 px-4 py-3 text-xs font-mono font-bold uppercase tracking-wider text-warn rounded-none">
+              REALTIME {connection}. DISPLAYED STATE MAY BE STALE — AUTO-RESYNC ACTIVE.
             </div>
           )}
 
-          <div className="panel grid grid-cols-2 divide-x divide-base-600 sm:grid-cols-3 lg:grid-cols-6">
-            <Metric label="Available" value={counts.available} tone="healthy" hint={`${counts.spareT}T spare network-wide`} onClick={() => setFilter('AVAILABLE')} active={filter === 'AVAILABLE'} />
+          <div className="panel grid grid-cols-2 divide-x-2 divide-base-600 sm:grid-cols-3 lg:grid-cols-6 rounded-none">
+            <Metric label="Available" value={counts.available} tone="healthy" hint={`${counts.spareT}T SPARE NETWORK`} onClick={() => setFilter('AVAILABLE')} active={filter === 'AVAILABLE'} />
             <Metric label="In Transit" value={counts.inTransit} tone="accent" onClick={() => setFilter('IN_TRANSIT')} active={filter === 'IN_TRANSIT'} />
             <Metric label="Incident" value={counts.incident} tone="danger" onClick={() => setFilter('INCIDENT')} active={filter === 'INCIDENT'} />
             <Metric label="Recovery" value={counts.recovery} tone="warn" onClick={() => setFilter('RECOVERY')} active={filter === 'RECOVERY'} />
-            <Metric label="Active Shipments" value={shipments.filter((s) => s.status !== 'DELIVERED').length} hint="Excludes delivered" />
-            <Metric label="Realtime" value={lastEvent ? lastEvent.type.replace('.', ' ') : 'idle'} tone="neutral" hint={`${events.length} events logged`} />
+            <Metric label="Active Shipments" value={shipments.filter((s) => s.status !== 'DELIVERED').length} hint="EXCLUDES DELIVERED" />
+            <Metric label="Realtime" value={lastEvent ? lastEvent.type.replace('.', ' ') : 'idle'} tone="neutral" hint={`${events.length} EVENTS LOGGED`} />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.95fr)]">
             <div className="space-y-4">
               <Panel
-                eyebrow="Live Network"
-                title="Bengaluru → Chennai corridor"
+                eyebrow="02. CORRIDOR GRAPH"
+                title="BENGALURU → CHENNAI CORRIDOR"
                 bodyClassName="p-0"
                 actions={
                   <div className="flex items-center gap-2">
