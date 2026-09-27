@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useFleet } from '../store/FleetContext';
 import { AppHeader } from '../components/AppHeader';
@@ -54,8 +54,75 @@ export function Driver() {
   const [description, setDescription] = useState('Engine failure / truck unable to continue');
   const [submitted, setSubmitted] = useState<Incident | null>(null);
 
+  // The approval queue comes from the server, not from local filtering, so what the
+  // driver sees is exactly what POST /shipments/:id/confirm and /decline will accept.
+  const [queue, setQueue] = useState<Awaited<ReturnType<typeof api.driverOffers>> | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
+
+  const driverId = session?.driver?.id ?? null;
+
+  // Reload whenever the authoritative snapshot changes, so a booking made on the
+  // Business screen shows up here on the next realtime refetch.
+  useEffect(() => {
+    if (!driverId) {
+      setQueue(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .driverOffers(driverId)
+      .then((res) => {
+        if (!cancelled) {
+          setQueue(res);
+          setQueueError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setQueueError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [driverId, snapshot]);
+
+  const pending = queue?.pending ?? [];
+  const accepted = queue?.accepted ?? [];
+
+  async function acceptOffer(shipmentId: string) {
+    setActing(shipmentId);
+    setError(null);
+    try {
+      await api.acceptShipment(shipmentId, driverId ?? undefined);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function declineOffer(shipmentId: string) {
+    setActing(shipmentId);
+    setError(null);
+    try {
+      await api.declineShipment(shipmentId, 'Driver declined from the cab view', driverId ?? undefined);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setActing(null);
+    }
+  }
+
   const canDepart =
-    !!truck && ['ASSIGNED', 'AVAILABLE', 'DELAYED'].includes(truck.status) && !!cargo && cargo.status !== 'IN_TRANSIT';
+    !!truck &&
+    ['ASSIGNED', 'AVAILABLE', 'DELAYED'].includes(truck.status) &&
+    !!cargo &&
+    cargo.status !== 'IN_TRANSIT' &&
+    // The server refuses to depart with an unaccepted load, so do not offer a
+    // button that can only fail.
+    pending.length === 0;
   const inTransit = truck?.status === 'IN_TRANSIT';
 
   async function startJourney() {
@@ -200,6 +267,108 @@ export function Driver() {
               />
             </div>
           </div>
+
+          {/* Approval queue — the driver decides what to carry. */}
+          <Panel
+            eyebrow="Your call"
+            title={pending.length > 0 ? `Loads waiting for you (${pending.length})` : 'Loads waiting for you'}
+            bodyClassName="p-0"
+          >
+            {queueError && (
+              <p className="border-b border-base-700 px-4 py-2.5 text-[11px] text-danger">{queueError}</p>
+            )}
+
+            {pending.length === 0 ? (
+              <p className="px-4 py-4 text-[11px] leading-relaxed text-ink-500">
+                Nothing needs your approval right now. When a business books capacity on your truck, the offer
+                appears here and you choose whether to take it.
+              </p>
+            ) : (
+              <ul className="divide-y divide-base-700">
+                {pending.map((offer) => (
+                  <li
+                    key={offer.shipment.id}
+                    className={cn('px-4 py-3.5', flashIds.includes(offer.shipment.id) && 'animate-flash-row')}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-semibold text-ink-50">
+                            {offer.shipment.id}
+                          </span>
+                          <StatusPill status="CAPACITY_RESERVED" tone="warn" size="sm" />
+                        </div>
+                        <div className="mt-1 truncate text-[11px] text-ink-400">{offer.shipment.cargoName}</div>
+                        <div className="mt-0.5 text-[10px] text-ink-600">
+                          {offer.shipperName ?? offer.shipment.shipperId}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="tabular text-base font-semibold text-ink-50">
+                          {formatT(offer.shipment.weightT)}
+                        </div>
+                        <div className="text-[10px] text-ink-600">{offer.currency}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-ink-400">
+                      <span className="font-medium text-ink-300">{offer.shipment.origin}</span>
+                      <span className="text-ink-600">→</span>
+                      <span className="font-medium text-ink-300">{offer.shipment.destination}</span>
+                    </div>
+
+                    {offer.shipment.deadlineAt && (
+                      <div className="mt-1 text-[10px] text-ink-600">
+                        Deliver by {formatRelative(offer.shipment.deadlineAt)}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={acting !== null}
+                        onClick={() => void acceptOffer(offer.shipment.id)}
+                        className={cn(
+                          'flex-1 rounded-md border border-healthy/40 bg-healthy/10 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-healthy transition-colors',
+                          'hover:bg-healthy/20 disabled:opacity-50',
+                        )}
+                      >
+                        {acting === offer.shipment.id ? 'Working…' : 'Accept'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={acting !== null}
+                        onClick={() => void declineOffer(offer.shipment.id)}
+                        className={cn(
+                          'flex-1 rounded-md border border-base-600 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-400 transition-colors',
+                          'hover:border-danger/40 hover:text-danger disabled:opacity-50',
+                        )}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {accepted.length > 0 && (
+              <div className="border-t border-base-700 px-4 py-3">
+                <div className="eyebrow mb-1.5">Already accepted</div>
+                <ul className="space-y-1">
+                  {accepted.map((offer) => (
+                    <li key={offer.shipment.id} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="font-mono text-ink-300">{offer.shipment.id}</span>
+                        <span className="truncate text-ink-600">{offer.shipment.cargoName}</span>
+                      </span>
+                      <span className="shrink-0 text-ink-500">{formatT(offer.shipment.weightT)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Panel>
 
           {/* Cargo */}
           <Panel eyebrow="Load" title="Assigned shipment" bodyClassName="p-4">

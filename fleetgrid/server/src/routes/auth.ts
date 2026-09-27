@@ -4,6 +4,7 @@ import { db } from '../store/db.js';
 import { ApiError } from '../lib/errors.js';
 import { asyncHandler } from '../middleware/errors.js';
 import { validateBody } from '../middleware/validate.js';
+import { register } from '../services/registration.js';
 import type { Role } from '../types.js';
 
 export const authRouter: Router = Router();
@@ -47,6 +48,59 @@ authRouter.post(
       organization: organization ?? null,
       driver: driver[0] ?? null,
       availableRoles: DEMO_ROLES,
+    });
+  }),
+);
+
+const registerSchema = z.object({
+  role: z.enum(['BUSINESS', 'DRIVER']),
+  name: z.string().min(2).max(120),
+  contact: z.string().min(3).max(160),
+  organizationName: z.string().min(2).max(120).nullish(),
+  truck: z
+    .object({
+      registrationNo: z.string().min(2).max(32),
+      capacityT: z.number().positive().max(50),
+      origin: z.string().min(2).max(80),
+      destination: z.string().min(2).max(80),
+    })
+    .nullish(),
+});
+
+/**
+ * POST /auth/register
+ *
+ * Self-service onboarding. The caller picks whether they are a shipper or a driver;
+ * the server creates only the entities that role needs (Master PRD §10).
+ *
+ * A DRIVER may pass `truck` to register a truck in the same call, which is what
+ * makes them able to receive offers immediately. A DRIVER without a truck is
+ * created but has nothing to accept until an operator assigns one.
+ *
+ * Returns the same `{ user, organization, driver }` shape as `demo-login` so the
+ * client can treat a freshly registered account exactly like a seeded one.
+ */
+authRouter.post(
+  '/auth/register',
+  validateBody(registerSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof registerSchema>;
+    const result = await register({
+      role: body.role,
+      name: body.name,
+      contact: body.contact,
+      organizationName: body.organizationName ?? null,
+      truck: body.truck ?? null,
+    });
+    res.status(201).json({
+      ok: true,
+      mode: 'registered',
+      warning:
+        'Account created, but this is not authentication: no password, token, or session. Demo scope only.',
+      user: result.user,
+      organization: result.organization,
+      driver: result.driver,
+      truck: result.truck,
     });
   }),
 );

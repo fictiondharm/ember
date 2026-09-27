@@ -1,7 +1,8 @@
 ﻿import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../store/db.js';
-import { findAvailableCapacity, reserveCapacity, searchCapacity } from '../services/capacity.js';
+import { round } from '../lib/ids.js';
+import { findAvailableCapacity, reserveCapacity, searchCapacity, suggestNearbyCapacity } from '../services/capacity.js';
 import { asyncHandler } from '../middleware/errors.js';
 import { validateBody, validateQuery } from '../middleware/validate.js';
 import { requiredParam } from '../middleware/params.js';
@@ -60,6 +61,35 @@ capacityRouter.post(
       actorId: actorId ?? null,
     });
     res.json({ ok: true, ...result });
+  }),
+);
+
+const nearbyQuerySchema = z.object({
+  truckId: z.string().min(2),
+  origin: z.string().min(2).optional(),
+  destination: z.string().min(2).optional(),
+  weightT: z.coerce.number().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+
+/**
+ * GET /capacity/nearby - other trucks worth knowing about, nearest first.
+ *
+ * Registered before `/capacity/:id` so "nearby" is not swallowed as an offer id.
+ * Distances are great-circle over stored coordinates, reported as a proximity hint.
+ */
+capacityRouter.get(
+  '/capacity/nearby',
+  validateQuery(nearbyQuerySchema),
+  asyncHandler(async (_req, res) => {
+    const query = res.locals.query as z.infer<typeof nearbyQuerySchema>;
+    const result = await suggestNearbyCapacity(query);
+    res.json({
+      ...result,
+      count: result.suggestions.length,
+      selectedTruckSpareT: result.selectedTruck ? round(result.selectedTruck.availableT) : null,
+      note: 'Distance is straight-line from stored coordinates, not a routing provider result.',
+    });
   }),
 );
 

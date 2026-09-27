@@ -200,7 +200,7 @@ async function main(): Promise<void> {
   });
   check('Mismatched pickup city is rejected with 422', wrongRoute.status === 422, wrongRoute.body);
 
-  section('6. Business creates the 1T shipment on FG-027');
+  section('6. Business reserves capacity, then the driver approves it');
   const created = await api('/shipments', {
     method: 'POST',
     body: JSON.stringify({
@@ -215,7 +215,10 @@ async function main(): Promise<void> {
   });
   check('POST /shipments returns 201', created.status === 201, created.body);
   const shipmentId = created.body.shipment?.id as string;
-  check('Shipment is CONFIRMED', created.body.shipment?.status === 'CONFIRMED', created.body.shipment);
+  check('Reserving leaves the shipment CAPACITY_RESERVED, not CONFIRMED',
+    created.body.shipment?.status === 'CAPACITY_RESERVED', created.body.shipment);
+  check('The response says it is waiting on the driver',
+    created.body.awaitingDriverApproval === true && created.body.confirmed === false, created.body);
   check('Shipment is on FG-027', created.body.shipment?.truckId === 'FG-027');
   check('Shipment price is 850 INR for 1T', created.body.shipment?.price === 850, created.body.shipment);
 
@@ -228,14 +231,80 @@ async function main(): Promise<void> {
   check('Control Tower received shipment.created', tower.types().includes('shipment.created'), tower.types());
   check('Control Tower received truck.updated', tower.types().includes('truck.updated'), tower.types());
   check('Control Tower received capacity.updated', tower.types().includes('capacity.updated'), tower.types());
-  check('Control Tower saw the confirmed shipment',
+  check('Control Tower saw the reserved shipment',
     tower.lastOfType('shipment.updated')?.id === shipmentId, tower.lastOfType('shipment.updated'));
+
+  // The approval gate: the driver has to say yes before anything is confirmed.
+  const offers = await api(`/driver/offers?driverId=${driverId}`);
+  check('The driver queue lists the reserved shipment as pending',
+    offers.body.counts?.pending === 1 && offers.body.pending?.[0]?.shipment?.id === shipmentId, offers.body);
+  check('The queue marks it awaiting the driver',
+    offers.body.pending?.[0]?.awaitingDriver === true, offers.body.pending?.[0]);
+  check('The driver is not told the load is already accepted',
+    offers.body.counts?.accepted === 0, offers.body.counts);
+
+  const departTooEarly = await api('/trucks/FG-027/depart', { method: 'POST', body: JSON.stringify({ driverId }) });
+  check('The truck cannot depart before the driver accepts the load',
+    departTooEarly.status === 409, departTooEarly.body);
+
+  const accepted = await api(`/shipments/${shipmentId}/confirm`, { method: 'POST' });
+  check('The driver accepting returns 200', accepted.status === 200, accepted.body);
+  check('Accepting confirms the shipment', accepted.body.shipment?.status === 'CONFIRMED', accepted.body.shipment);
+  check('The acceptance is attributed to the DRIVER', accepted.body.acceptedBy === 'DRIVER', accepted.body);
+
+  await sleep(300);
+  const offersAfter = await api(`/driver/offers?driverId=${driverId}`);
+  check('The queue moves the shipment from pending to accepted',
+    offersAfter.body.counts?.pending === 0 && offersAfter.body.counts?.accepted === 1, offersAfter.body.counts);
+
+  section('6b. A driver can decline, and the tonnage goes back');
+  const declined = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({
+      shipperId,
+      cargoName: 'ABC Electronics (second load)',
+      origin: 'Bengaluru',
+      destination: 'Chennai',
+      weightT: 0.5,
+      actorId: demoLogin.body.user.id,
+      capacityOfferId: fg027.offer.id,
+    }),
+  });
+  const declinedId = declined.body.shipment?.id as string;
+  check('A second 0.5T load also waits for approval',
+    declined.body.shipment?.status === 'CAPACITY_RESERVED', declined.body.shipment);
+
+  const spareBeforeDecline = (await api('/trucks/FG-027')).body.truck.availableT;
+  const declinedRes = await api(`/shipments/${declinedId}/decline`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'Already full near Hosur', actorId: driverId }),
+  });
+  check('Declining returns 200', declinedRes.status === 200, declinedRes.body);
+  check('A declined shipment returns to DRAFT', declinedRes.body.shipment?.status === 'DRAFT', declinedRes.body.shipment);
+  check('A declined shipment is no longer on a truck', declinedRes.body.shipment?.truckId === null, declinedRes.body.shipment);
+  const spareAfterDecline = (await api('/trucks/FG-027')).body.truck.availableT;
+  check('Declining gives the tonnage back', spareAfterDecline === spareBeforeDecline + 0.5,
+    { spareBeforeDecline, spareAfterDecline });
+
+  const declineTwice = await api(`/shipments/${declinedId}/decline`, { method: 'POST', body: JSON.stringify({}) });
+  check('Declining twice is rejected with 409', declineTwice.status === 409, declineTwice.body);
+  const confirmDraft = await api(`/shipments/${declinedId}/confirm`, { method: 'POST' });
+  check('A DRAFT shipment cannot be confirmed — the gate cannot be skipped',
+    confirmDraft.status === 409, confirmDraft.body);
+
+  const declinedTimeline = await api(`/shipments/${declinedId}/timeline`);
+  check('The decline is recorded as an event',
+    declinedTimeline.body.events.some((e: any) => e.eventType === 'shipment.capacity_released'),
+    declinedTimeline.body.events?.map((e: any) => e.eventType));
+  check('The release event is attributed to the DRIVER',
+    declinedTimeline.body.events.find((e: any) => e.eventType === 'shipment.capacity_released')?.actorType === 'DRIVER',
+    declinedTimeline.body.events?.find((e: any) => e.eventType === 'shipment.capacity_released'));
 
   section('7. Driver starts the journey');
   const depart = await api('/trucks/FG-027/depart', { method: 'POST', body: JSON.stringify({ driverId }) });
   check('POST /trucks/FG-027/depart succeeds', depart.status === 200, depart.body);
   check('FG-027 is IN_TRANSIT', depart.body.truckStatus === 'IN_TRANSIT', depart.body);
-  check('Shipment is IN_TRANSIT', depart.body.shipments?.[0]?.status === 'IN_TRANSIT', depart.body.shipments);
+  check('Shipment is IN_TRANSIT', depart.body.shipments?.some((s: any) => s.id === shipmentId && s.status === 'IN_TRANSIT'), depart.body.shipments);
 
   await sleep(300);
   const afterDepart = await api('/state');
@@ -348,6 +417,9 @@ async function main(): Promise<void> {
   check('Timeline records shipment.created', eventTypes.includes('shipment.created'), eventTypes);
   check('Timeline records shipment.capacity_reserved', eventTypes.includes('shipment.capacity_reserved'));
   check('Timeline records shipment.confirmed', eventTypes.includes('shipment.confirmed'));
+  const confirmEvent = timeline.body.events.find((e: any) => e.eventType === 'shipment.confirmed');
+  check('The confirmation is attributed to the DRIVER who accepted it',
+    confirmEvent?.actorType === 'DRIVER', confirmEvent);
   check('Timeline records shipment.departed', eventTypes.includes('shipment.departed'));
   check('Timeline records incident.created', eventTypes.includes('incident.created'));
   check('Timeline records cargo.handoff', eventTypes.includes('cargo.handoff'), eventTypes);
@@ -424,6 +496,14 @@ async function main(): Promise<void> {
   });
   const directShipmentId = directShipment.body.shipment?.id as string;
   check('A second shipment was booked on FG-052', directShipment.status === 201 && directShipment.body.shipment?.truckId === 'FG-052', directShipment.body.shipment);
+  check('That booking also waits for the FG-052 driver to accept',
+    directShipment.body.shipment?.status === 'CAPACITY_RESERVED', directShipment.body.shipment);
+  // The gate applies to every departure, not just the demo truck: the FG-052 driver
+  // has to accept this load before the truck is allowed to roll.
+  const departBlocked = await api('/trucks/FG-052/depart', { method: 'POST', body: JSON.stringify({}) });
+  check('FG-052 cannot depart while the load is unaccepted', departBlocked.status === 409, departBlocked.body);
+  const accept052 = await api(`/shipments/${directShipmentId}/confirm`, { method: 'POST' });
+  check('The FG-052 driver accepts and it is CONFIRMED', accept052.body.shipment?.status === 'CONFIRMED', accept052.body.shipment);
   const depart052 = await api('/trucks/FG-052/depart', { method: 'POST', body: JSON.stringify({}) });
   check('FG-052 departs and reaches IN_TRANSIT', depart052.body.truckStatus === 'IN_TRANSIT', depart052.body);
 
@@ -523,7 +603,121 @@ async function main(): Promise<void> {
   check('No schema entry leaks a secret-shaped field',
     !/(api[_-]?key|secret|password|private[_-]?key)/i.test(schemaText));
 
-  section('14. Reset restores the exact demo state');
+  section('14. Self-service registration chooses the right entities');
+  const regBiz = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      role: 'BUSINESS',
+      name: 'Asha Rao',
+      contact: 'asha@asha-textiles.in',
+      organizationName: 'Asha Textiles',
+    }),
+  });
+  check('Registering a business returns 201', regBiz.status === 201, regBiz.body);
+  check('A business gets a SHIPPER organization', regBiz.body.organization?.type === 'SHIPPER', regBiz.body.organization);
+  check('A business gets a BUSINESS user', regBiz.body.user?.role === 'BUSINESS', regBiz.body.user);
+  check('A business gets no driver row', regBiz.body.driver === null, regBiz.body.driver);
+  check('A business gets no truck', regBiz.body.truck === null, regBiz.body.truck);
+  check('The organization slug keeps the whole name', regBiz.body.organization?.id === 'asha_textiles', regBiz.body.organization?.id);
+  check('Registration does not pretend to be authentication',
+    regBiz.body.mode === 'registered' && String(regBiz.body.warning).includes('not authentication'), regBiz.body.mode);
+
+  const regDrv = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      role: 'DRIVER',
+      name: 'Ravi Kumar',
+      contact: '+91 90000 11223',
+      truck: { registrationNo: 'KA 55 ZZ 9999', capacityT: 6, origin: 'Bengaluru', destination: 'Chennai' },
+    }),
+  });
+  check('Registering a driver returns 201', regDrv.status === 201, regDrv.body);
+  check('A driver gets a FLEET_OPERATOR organization', regDrv.body.organization?.type === 'FLEET_OPERATOR', regDrv.body.organization);
+  check('A driver gets a DRIVER user', regDrv.body.user?.role === 'DRIVER', regDrv.body.user);
+  check('A driver gets a driver row', Boolean(regDrv.body.driver?.id), regDrv.body.driver);
+  check('The new truck is linked to the driver', regDrv.body.driver?.assignedTruckId === regDrv.body.truck?.id,
+    { driver: regDrv.body.driver?.assignedTruckId, truck: regDrv.body.truck?.id });
+  check('The new truck starts with its full tonnage spare', regDrv.body.truck?.availableT === 6, regDrv.body.truck);
+  check('The new driver is immediately usable', regDrv.body.driver?.status === 'AVAILABLE', regDrv.body.driver);
+
+  const newTruckId = regDrv.body.truck?.id as string;
+  const newDriverId = regDrv.body.driver?.id as string;
+  const newOffer = (await api(`/capacity/${(await api('/capacity?includeAll=true')).body.matches
+    .find((m: any) => m.truck.id === newTruckId)?.offer?.id}`)).body.offer;
+  check('The new truck published a capacity offer', newOffer?.id?.length > 0, newOffer);
+
+  const drvNoTruck = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ role: 'DRIVER', name: 'Solo Driver', contact: '+91 90000 00000' }),
+  });
+  check('A driver can register without a truck', drvNoTruck.status === 201 && drvNoTruck.body.truck === null, drvNoTruck.body);
+  const noTruckQueue = await api(`/driver/offers?driverId=${drvNoTruck.body.driver.id}`);
+  check('A driver with no truck has an empty queue, not an error',
+    noTruckQueue.status === 200 && noTruckQueue.body.truck === null && noTruckQueue.body.counts.pending === 0,
+    noTruckQueue.body);
+
+  const dupeOrg = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ role: 'BUSINESS', name: 'Asha Rao', contact: 'asha2@asha-textiles.in', organizationName: 'Asha Textiles' }),
+  });
+  check('A duplicate organization name gets a unique id', dupeOrg.body.organization?.id === 'asha_textiles_2', dupeOrg.body.organization?.id);
+
+  const badRole = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ role: 'CONTROL_TOWER', name: 'Sneaky', contact: 'x@y.z' }),
+  });
+  check('Only BUSINESS or DRIVER can register', badRole.status === 400, badRole.body);
+  const sameEnds = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ role: 'DRIVER', name: 'Loop Truck', contact: 'x@y.z', truck: { registrationNo: 'KA 01 LO 0001', capacityT: 5, origin: 'Chennai', destination: 'Chennai' } }),
+  });
+  check('A truck whose origin equals its destination is rejected with 422', sameEnds.status === 422, sameEnds.body);
+  const badTruck = await api('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ role: 'DRIVER', name: 'No Plate', contact: 'x@y.z', truck: { registrationNo: '', capacityT: 5, origin: 'Bengaluru', destination: 'Chennai' } }),
+  });
+  check('A driver truck with no registration number is rejected with 400', badTruck.status === 400, badTruck.body);
+
+  section('15. Surplus capacity suggests the nearest other trucks');
+  const near = await api(`/capacity/nearby?truckId=${newTruckId}&origin=Bengaluru&destination=Chennai&weightT=1`);
+  check('GET /capacity/nearby returns 200', near.status === 200, near.body);
+  check('It reports the selected truck and its spare tonnage',
+    near.body.selectedTruck?.id === newTruckId && near.body.selectedTruckSpareT === 6, near.body.selectedTruckSpareT);
+  check('It never suggests the truck already selected',
+    near.body.suggestions.every((s: any) => s.truck.id !== newTruckId),
+    near.body.suggestions.map((s: any) => s.truck.id));
+  check('Distances are real numbers', near.body.suggestions.every((s: any) => typeof s.distanceFromSelectedKm === 'number'),
+    near.body.suggestions.map((s: any) => s.distanceFromSelectedKm));
+  const dists = near.body.suggestions.map((s: any) => s.distanceFromSelectedKm);
+  check('Suggestions are ordered nearest first',
+    dists.every((d: number, i: number) => i === 0 || d >= dists[i - 1]), dists);
+  check('It says the distance is not a routing result',
+    String(near.body.note).includes('not a routing provider'), near.body.note);
+
+  // Surplus tonnage: take most of the new truck, then confirm the alternatives are real.
+  const newShipment = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({
+      shipperId: regBiz.body.organization.id,
+      cargoName: 'Ceramic tiles',
+      origin: 'Bengaluru',
+      destination: 'Chennai',
+      weightT: 5,
+      capacityOfferId: newOffer.id,
+    }),
+  });
+  check('A 5T load fits the new 6T truck', newShipment.status === 201, newShipment.body);
+  const nearAfter = await api(`/capacity/nearby?truckId=${newTruckId}&weightT=1`);
+  check('After a big load, 1T of spare remains on the chosen truck',
+    nearAfter.body.selectedTruckSpareT === 1, nearAfter.body.selectedTruckSpareT);
+  check('Alternatives that can also carry the load are flagged',
+    nearAfter.body.suggestions.some((s: any) => s.canAlsoCarry === true),
+    nearAfter.body.suggestions.map((s: any) => ({ id: s.truck.id, spare: s.truck.availableT, can: s.canAlsoCarry })));
+  check('The new driver has the load waiting for approval',
+    (await api(`/driver/offers?driverId=${newDriverId}`)).body.counts.pending === 1,
+    (await api(`/driver/offers?driverId=${newDriverId}`)).body.counts);
+
+  section('16. Reset restores the exact demo state');
   await api('/demo/reset', { method: 'POST' });
   const afterReset = await api('/state');
   const t027 = afterReset.body.trucks.find((t: any) => t.id === 'FG-027');
@@ -532,6 +726,9 @@ async function main(): Promise<void> {
   check('Reset: only the two seeded historical shipments remain', afterReset.body.shipments.length === 2, afterReset.body.shipments.length);
   check('Reset: no recovery plans', afterReset.body.recoveryPlans.length === 0);
   check('Reset broadcast reached Control Tower', tower.types().includes('demo.reset'), tower.types());
+  check('Reset removes the accounts created during this run',
+    !(await api('/state')).body.organizations.some((o: any) => o.id === 'asha_textiles'),
+    'registered org should not survive a reset');
 
   await tower.close();
   await business.close();

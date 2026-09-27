@@ -7,7 +7,7 @@ import { reserveCapacity, syncOfferForTruck } from './capacity.js';
 import { assertTransition, recordEvent } from './events.js';
 import { hub } from './realtime.js';
 import { transitionTruck } from './trucks.js';
-import { SHIPMENT_TRANSITIONS, type Shipment, type ShipmentStatus, type Truck } from '../types.js';
+import { SHIPMENT_TRANSITIONS, type ActorType, type CapacityOffer, type Driver, type Shipment, type ShipmentStatus, type Truck } from '../types.js';
 
 export const MAX_SHIPMENT_WEIGHT_T = 50;
 
@@ -54,16 +54,26 @@ export interface CreateShipmentInput {
 export interface CreateShipmentResult {
   shipment: Shipment;
   reserved: boolean;
+  /**
+   * False once the driver gate is in play: reserving capacity no longer confirms
+   * the shipment. `POST /shipments/:id/confirm` is the driver's acceptance.
+   */
   confirmed: boolean;
+  /** True when the shipment is now sitting in CAPACITY_RESERVED awaiting a driver. */
+  awaitingDriverApproval: boolean;
 }
 
 /**
  * POST /shipments.
  *
- * With `capacityOfferId` the whole golden-flow business action happens in one
- * atomic step: reserve capacity (DRAFT → CAPACITY_RESERVED) then confirm
- * (CAPACITY_RESERVED → CONFIRMED), each with its own event.
- * Without it, a plain DRAFT shipment is created.
+ * With `capacityOfferId` this creates the shipment and atomically reserves the
+ * capacity in one locked step (Backend PRD §5), leaving it `CAPACITY_RESERVED`.
+ * It deliberately does **not** confirm: Master PRD §6 has the driver start the
+ * journey after the shipper reserves, and §7 defines `CAPACITY_RESERVED → CONFIRMED`
+ * as a distinct step, so the driver accepting the load is that transition.
+ *
+ * Reserving without confirming is what the PRD's own API contract implies, since
+ * it lists `POST /capacity/:id/reserve` separately from `POST /shipments`.
  */
 export async function createShipment(input: CreateShipmentInput): Promise<CreateShipmentResult> {
   return runExclusive(async () => {
@@ -141,7 +151,7 @@ export async function createShipment(input: CreateShipmentInput): Promise<Create
     hub.broadcast('shipment.created', created);
 
     if (!offer) {
-      return { shipment: created, reserved: false, confirmed: false };
+      return { shipment: created, reserved: false, confirmed: false, awaitingDriverApproval: false };
     }
 
     const reserved = await reserveCapacity({
@@ -165,19 +175,115 @@ export async function createShipment(input: CreateShipmentInput): Promise<Create
       actorId: input.actorId ?? null,
     });
 
-    const confirmed = await confirmShipment(created.id, {
-      actorType: input.actorType,
-      actorId: input.actorId,
-    });
-
-    return { shipment: confirmed, reserved: true, confirmed: true };
+    // Stop here on purpose. The driver has not agreed to carry this load yet, so
+    // CONFIRMED would be a lie. `POST /shipments/:id/confirm` is the driver's accept.
+    return {
+      shipment: reserved.shipment,
+      reserved: true,
+      confirmed: false,
+      awaitingDriverApproval: true,
+    };
   });
 }
 
-/** CAPACITY_RESERVED → CONFIRMED. */
+/**
+ * POST /shipments/:id/decline
+ *
+ * The driver says no. Releases the reserved tonnage back to the truck and the offer
+ * so the business can re-book, and returns the shipment to DRAFT.
+ *
+ * Master PRD §7 has no CANCELLED state, so DRAFT is the honest resting place: the
+ * shipment still exists and is still editable, it just no longer holds capacity.
+ */
+export async function declineShipment(
+  shipmentId: string,
+  input: { reason?: string | null; actorType?: ActorType; actorId?: string | null } = {},
+): Promise<{ shipment: Shipment; truck: Truck | null; offer: CapacityOffer | null }> {
+  return runExclusive(async () => {
+    const shipment = await db.shipments.findById(shipmentId);
+    if (!shipment) {
+      throw ApiError.notFound(`Shipment ${shipmentId} does not exist.`);
+    }
+    if (shipment.status !== 'CAPACITY_RESERVED') {
+      throw ApiError.conflict(
+        `Shipment ${shipment.id} is ${shipment.status}. Only a shipment awaiting driver approval (CAPACITY_RESERVED) can be declined.`,
+        { status: shipment.status },
+      );
+    }
+
+    let releasedTruck: Truck | null = null;
+    let releasedOffer: CapacityOffer | null = null;
+
+    if (shipment.capacityOfferId) {
+      const offer = await db.capacityOffers.findById(shipment.capacityOfferId);
+      const truck = offer ? await db.trucks.findById(offer.truckId) : null;
+
+      if (offer && truck) {
+        const restored = round(truck.availableT + shipment.weightT);
+
+        // Release the tonnage first, then decide whether the truck is free again.
+        // Only go back to AVAILABLE when no other shipment still needs this truck,
+        // so declining one offer cannot strand a multi-load truck in the wrong state.
+        const otherLive = (await db.shipments.find((s) => s.truckId === truck.id)).filter(
+          (s) => s.id !== shipment.id && ACTIVE_SHIPMENT_STATUSES.includes(s.status),
+        );
+
+        const updatedTruck = await db.trucks.update(truck.id, {
+          availableT: restored,
+          status: otherLive.length === 0 ? 'AVAILABLE' : truck.status,
+        });
+        const updatedOffer = await db.capacityOffers.update(offer.id, {
+          availableT: restored,
+          status: 'OPEN',
+          updatedAt: nowIso(),
+        });
+        if (updatedTruck) {
+          releasedTruck = updatedTruck;
+          hub.broadcast('truck.updated', updatedTruck);
+        }
+        if (updatedOffer) {
+          releasedOffer = updatedOffer;
+          hub.broadcast('capacity.updated', updatedOffer);
+        }
+      }
+    }
+
+    const updated = await db.shipments.update(shipment.id, {
+      status: 'DRAFT',
+      truckId: null,
+      capacityOfferId: null,
+      updatedAt: nowIso(),
+    });
+    if (!updated) throw ApiError.notFound(`Shipment ${shipment.id} disappeared while declining.`);
+
+    await recordEvent({
+      shipmentId: updated.id,
+      eventType: 'shipment.capacity_released',
+      payload: {
+        previousStatus: 'CAPACITY_RESERVED',
+        status: 'DRAFT',
+        releasedWeightT: shipment.weightT,
+        reason: input.reason ?? 'Driver declined the offer',
+      },
+      actorType: input.actorType ?? 'DRIVER',
+      actorId: input.actorId ?? null,
+    });
+
+    return { shipment: updated, truck: releasedTruck, offer: releasedOffer };
+  });
+}
+
+/**
+ * CAPACITY_RESERVED → CONFIRMED.
+ *
+ * Now the driver acceptance gate: the client calls this from the driver view, so
+ * DRIVER is the expected actor. It stays idempotent (already CONFIRMED returns the
+ * shipment unchanged) and still validated against the state machine, so it cannot
+ * skip the reservation step.
+ */
 export async function confirmShipment(
   shipmentId: string,
-  actor?: { actorType?: 'BUSINESS' | 'AGENT' | 'OPERATOR'; actorId?: string | null },
+  actor?: { actorType?: ActorType; actorId?: string | null },
 ): Promise<Shipment> {
   return runExclusive(async () => {
     const shipment = await getShipment(shipmentId);
@@ -192,7 +298,7 @@ export async function confirmShipment(
       shipmentId: updated.id,
       truckId: updated.truckId,
       payload: { from: shipment.status, to: 'CONFIRMED', price: updated.price, currency: updated.currency },
-      actorType: actor?.actorType ?? 'BUSINESS',
+      actorType: actor?.actorType ?? 'DRIVER',
       actorId: actor?.actorId ?? null,
     });
     hub.broadcast('shipment.updated', updated);
@@ -348,6 +454,73 @@ export async function setShipmentStatus(
   });
   hub.broadcast('shipment.updated', updated);
   return updated;
+}
+
+export interface DriverOffer {
+  shipment: Shipment;
+  truck: Truck | null;
+  offer: CapacityOffer | null;
+  shipperName: string | null;
+  route: string;
+  estimatedPay: number;
+  currency: string;
+  /** True while the driver still has to answer; false once it is already accepted. */
+  awaitingDriver: boolean;
+}
+
+/**
+ * GET /driver/offers — what a driver can currently be asked to carry.
+ *
+ * A read model over Shipment + CapacityOffer + Truck, not a new entity: the rows all
+ * already exist, this just joins them for the driver screen. The approval gate lives
+ * on `awaitingDriver`, which is true exactly when the shipment is `CAPACITY_RESERVED`
+ * — the same condition `POST /shipments/:id/confirm` and `/decline` act on, so the
+ * queue can never disagree with the state machine.
+ */
+export async function driverOffers(driverId: string): Promise<{
+  driver: Driver | null;
+  truck: Truck | null;
+  pending: DriverOffer[];
+  accepted: DriverOffer[];
+}> {
+  const [drivers, trucks, offers, shipments, orgs] = await Promise.all([
+    db.drivers.get(),
+    db.trucks.get(),
+    db.capacityOffers.get(),
+    db.shipments.get(),
+    db.organizations.get(),
+  ]);
+
+  const driver = drivers.find((d) => d.id === driverId) ?? null;
+  const truck = driver?.assignedTruckId ? trucks.find((t) => t.id === driver.assignedTruckId) ?? null : null;
+
+  if (!truck) {
+    return { driver, truck: null, pending: [], accepted: [] };
+  }
+
+  const offer = offers.find((o) => o.truckId === truck.id) ?? null;
+  const mine = shipments.filter((s) => s.truckId === truck.id);
+
+  const build = (shipment: Shipment): DriverOffer => ({
+    shipment,
+    truck,
+    offer,
+    shipperName: orgs.find((o) => o.id === shipment.shipperId)?.name ?? null,
+    route: `${shipment.origin} → ${shipment.destination}`,
+    estimatedPay: Math.round(shipment.weightT * (offer?.pricePerT ?? 0)),
+    currency: shipment.currency,
+    awaitingDriver: shipment.status === 'CAPACITY_RESERVED',
+  });
+
+  return {
+    driver,
+    truck,
+    // Pending first: this is the queue the driver has to act on.
+    pending: mine.filter((s) => s.status === 'CAPACITY_RESERVED').map(build),
+    accepted: mine
+      .filter((s) => s.status === 'CONFIRMED' || s.status === 'IN_TRANSIT' || s.status === 'AT_RISK')
+      .map(build),
+  };
 }
 
 export async function shipmentTimeline(shipmentId: string) {

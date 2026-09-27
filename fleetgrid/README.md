@@ -25,16 +25,44 @@ starting the web app (see `.env.example`).
 
 ### Demo flow
 
-1. **Business** — search `Bengaluru → Chennai` for `1.2` tonnes, select the **FG-027** offer, create the
-   shipment. One server call reserves capacity atomically and confirms: the truck goes `AVAILABLE →
-   ASSIGNED` and its spare tonnage drops from 3.8T to 2.6T on every device at once.
-2. **Driver** — open on a phone. Start the journey, then report an incident. The truck goes `INCIDENT`
-   and the shipment `AT_RISK`.
-3. **Control Tower** — analyze the incident, review the deterministic options, approve, then execute. The
+0. **Sign up** — from the role screen choose *Create an account*, then pick **Business** or **Driver**. A driver
+   can attach a truck in the same step, which is what makes them able to receive offers immediately.
+1. **Business** — search `Bengaluru → Chennai` for `1.2` tonnes, select the **FG-027** offer, then
+   *Reserve capacity & request driver*. One server call reserves the tonnage atomically and leaves the shipment
+   at `CAPACITY_RESERVED` — the truck goes `AVAILABLE → ASSIGNED` and its spare tonnage drops on every device at
+   once. A panel also lists the other trucks nearest this one, with their spare tonnage.
+2. **Driver** — the load appears under *Loads waiting for you*. **Accept** runs `CAPACITY_RESERVED → CONFIRMED`;
+   **Decline** gives the tonnage back and returns the shipment to `DRAFT` so the business can rebook. Until the
+   driver accepts, the truck **cannot depart** — the server rejects it. Then start the journey.
+3. **Incident** — the driver reports a breakdown. The truck goes `INCIDENT` and the shipment `AT_RISK`.
+4. **Control Tower** — analyze the incident, review the deterministic options, approve, then execute. The
    cargo is reassigned, the disabled truck returns to service, and the panel keeps a verified readback of
    the resulting server state.
 
-`npm run reset --prefix server` restores the deterministic seed at any time (server must be running).
+`npm run reset --prefix server` restores the deterministic seed at any time (server must be running). It also
+removes any accounts created during the run.
+
+### The driver approval gate
+
+A business reserving capacity does **not** confirm a shipment. This is not a new state — Master PRD §7 already
+defines `CAPACITY_RESERVED → CONFIRMED` as its own step, and §6 has the driver start the journey after the
+shipper reserves. The PRD's own API contract lists `POST /capacity/:id/reserve` separately from
+`POST /shipments`, which is the same split.
+
+The gate is enforced in three places, so it cannot be bypassed:
+
+| Attempt | Result |
+| --- | --- |
+| `POST /shipments` with `capacityOfferId` | reserves, stays `CAPACITY_RESERVED` |
+| `POST /trucks/:id/depart` with an unaccepted load | `409` with the blocking shipment ids |
+| `POST /shipments/:id/confirm` on a `DRAFT` shipment | `409` — the reservation step cannot be skipped |
+
+`GET /driver/offers` is the queue the driver screen reads. It is a read model over existing rows, filtered on
+exactly the `CAPACITY_RESERVED` condition that `/confirm` and `/decline` act on, so the screen and the state
+machine cannot disagree.
+
+Declining has no `CANCELLED` state to fall back on, so it returns the shipment to `DRAFT` with the capacity
+released — the shipment still exists and is still editable, it simply no longer holds tonnage.
 
 ---
 
@@ -47,10 +75,10 @@ fleetgrid/
     src/services/         domain logic and state machines
     src/routes/           REST API + endpoint index
     src/seed/             deterministic demo dataset
-    test/flow.test.ts     end-to-end suite (133 checks, incl. two WebSocket clients)
+    test/flow.test.ts     end-to-end suite (187 checks, incl. two WebSocket clients)
   web/                    React + Vite + Tailwind single-page app
     src/store/            snapshot context, refetch-on-event, mode persistence
-    src/views/            ControlTower, Business, Driver, RoleSelect
+    src/views/            ControlTower, Business, Driver, Register, RoleSelect
     src/components/       incident/recovery desk, event feed, map, tables
   scripts/                dev runner + reset helper
 ```
@@ -156,7 +184,8 @@ drivers, three trucks on the Bengaluru → Chennai corridor, and two delivered h
 independent WebSocket clients: seed integrity, capacity search, oversell rejection, atomic reservation,
 departure, incident creation, recovery options, the approval gate (including a bypass attempt that must
 fail), execution, idempotent re-execution, timeline, delivery confirmation, the honesty of
-the unwired integration routes, the published tool contract, and reset. 133 checks, no
+the unwired integration routes, the published tool contract, registration, the driver approval
+gate, and reset. 187 checks, no
 mocking of business rules.
 
 ---
@@ -171,5 +200,6 @@ Web: `VITE_API_URL`.
 
 - Single-process server with file storage. Fine for the demo; a real deployment wants Postgres plus a
   shared pub/sub so multiple instances broadcast the same events.
-- No authentication. `POST /auth/demo-login` selects a seeded role; device mode is a demo affordance.
+- No authentication. `POST /auth/demo-login` selects a seeded role and `POST /auth/register`
+  creates an account, but neither has a password, token, or session. Both are demo scope.
 - Cost, ETA, and distance numbers are demo estimates, labelled as such in the UI.

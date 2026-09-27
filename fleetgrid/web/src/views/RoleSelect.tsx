@@ -101,6 +101,15 @@ export function RoleSelect() {
         </div>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-600">
+          <button
+            type="button"
+            onClick={() => void setMode('REGISTER')}
+            className="flex items-center gap-1.5 text-healthy/80 transition-colors hover:text-healthy"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-healthy" />
+            Create an account — driver or business
+          </button>
+          <span>·</span>
           <span className="flex items-center gap-1.5">
             <span
               className={cn(

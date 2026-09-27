@@ -75,3 +75,42 @@ export function etaLabelFor(departureAtIso: string): string {
   if (hours <= 36) return 'Tomorrow';
   return new Date(departure).toISOString().slice(0, 10);
 }
+
+const EARTH_RADIUS_KM = 6371;
+const toRad = (deg: number): number => (deg * Math.PI) / 180;
+
+/**
+ * Great-circle distance between two stored points, in km.
+ *
+ * This is real arithmetic over the seeded `lat`/`lng` on each truck, not a routing
+ * provider result. The UI must present it as a proximity hint, not a drive distance
+ * or an ETA (Master PRD §17: no fake routing data).
+ */
+export function distanceKm(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number | null {
+  if (
+    !Number.isFinite(a.lat) ||
+    !Number.isFinite(a.lng) ||
+    !Number.isFinite(b.lat) ||
+    !Number.isFinite(b.lng)
+  ) {
+    return null;
+  }
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return Math.round(2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h)) * 10) / 10;
+}
+
+/** Short, honest label for a proximity hint. Never presented as travel distance. */
+export function proximityLabel(km: number | null): string {
+  if (km === null) return 'Position unknown';
+  if (km < 1) return 'Same area';
+  if (km < 25) return `${Math.round(km)} km away`;
+  return `${Math.round(km)} km away`;
+}

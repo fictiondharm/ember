@@ -151,7 +151,23 @@ export async function departTruck(truckId: string, actorId?: string | null): Pro
       );
     }
 
-    const pending = assigned.filter((s) => s.status === 'CAPACITY_RESERVED' || s.status === 'CONFIRMED');
+    // The driver approval gate has to be enforced here too, or it is decorative:
+    // a CAPACITY_RESERVED load means the business booked it and the driver has not
+    // accepted yet, so the truck must not roll with cargo nobody agreed to carry.
+    const awaitingDriver = assigned.filter((s) => s.status === 'CAPACITY_RESERVED');
+    const firstPending = awaitingDriver[0];
+    if (firstPending) {
+      throw ApiError.conflict(
+        `Truck ${truck.id} cannot depart: ${awaitingDriver.length} shipment(s) are still awaiting driver approval. ` +
+          `The driver must accept or decline ${awaitingDriver.map((s) => s.id).join(', ')} first.`,
+        {
+          awaitingDriverApproval: awaitingDriver.map((s) => s.id),
+          hint: `POST /shipments/${firstPending.id}/confirm or POST /shipments/${firstPending.id}/decline`,
+        },
+      );
+    }
+
+    const pending = assigned.filter((s) => s.status === 'CONFIRMED');
     if (pending.length === 0) {
       throw ApiError.conflict(
         `Truck ${truck.id} already has ${assigned.length} shipment(s) in progress and none can depart.`,

@@ -4,6 +4,7 @@ import {
   confirmDelivery,
   confirmShipment,
   createShipment,
+  declineShipment,
   getShipment,
   listShipments,
   shipmentTimeline,
@@ -30,10 +31,12 @@ const createShipmentSchema = z.object({
 /**
  * POST /shipments
  *
- * With `capacityOfferId`, one atomic call performs the whole business action:
- * reserve capacity (DRAFT → CAPACITY_RESERVED) and confirm
- * (CAPACITY_RESERVED → CONFIRMED), decrementing the truck's spare tonnage.
- * Without it, a plain DRAFT shipment is created.
+ * With `capacityOfferId`, one atomic call creates the shipment and reserves the
+ * capacity (DRAFT → CAPACITY_RESERVED), decrementing the truck's spare tonnage.
+ * It stops there on purpose: the driver has not agreed to carry the load yet, so
+ * `confirmed` comes back false and `awaitingDriverApproval` is true. The driver
+ * accepts with `POST /shipments/:id/confirm`.
+ * Without `capacityOfferId`, a plain DRAFT shipment is created.
  */
 shipmentsRouter.post(
   '/shipments',
@@ -57,6 +60,7 @@ shipmentsRouter.post(
       shipment: result.shipment,
       reserved: result.reserved,
       confirmed: result.confirmed,
+      awaitingDriverApproval: result.awaitingDriverApproval,
     });
   }),
 );
@@ -83,12 +87,49 @@ shipmentsRouter.get(
   }),
 );
 
-/** CAPACITY_RESERVED → CONFIRMED. */
+/**
+ * POST /shipments/:id/confirm — the driver's accept. CAPACITY_RESERVED → CONFIRMED.
+ *
+ * This is the approval gate: a reserved shipment stays pending until the driver
+ * calls this, so a business can never unilaterally confirm a load onto a truck.
+ */
 shipmentsRouter.post(
   '/shipments/:id/confirm',
   asyncHandler(async (req, res) => {
-    const shipment = await confirmShipment(requiredParam(req, 'id'), { actorType: 'BUSINESS' });
-    res.json({ ok: true, shipment });
+    const shipment = await confirmShipment(requiredParam(req, 'id'), { actorType: 'DRIVER' });
+    res.json({ ok: true, shipment, acceptedBy: 'DRIVER' });
+  }),
+);
+
+const declineSchema = z.object({
+  reason: z.string().max(240).nullish(),
+  actorId: z.string().min(2).nullish(),
+});
+
+/**
+ * POST /shipments/:id/decline — the driver says no.
+ *
+ * Releases the reserved tonnage back to the truck and its offer, and returns the
+ * shipment to DRAFT (Master PRD §7 defines no CANCELLED state). The business can
+ * then re-book onto another truck.
+ */
+shipmentsRouter.post(
+  '/shipments/:id/decline',
+  validateBody(declineSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof declineSchema>;
+    const result = await declineShipment(requiredParam(req, 'id'), {
+      reason: body.reason ?? null,
+      actorType: 'DRIVER',
+      actorId: body.actorId ?? null,
+    });
+    res.json({
+      ok: true,
+      declined: true,
+      shipment: result.shipment,
+      releasedTruck: result.truck,
+      releasedOffer: result.offer,
+    });
   }),
 );
 

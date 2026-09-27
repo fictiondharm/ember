@@ -56,6 +56,12 @@ interface FleetContextValue {
   flashIds: string[];
   refresh: () => Promise<void>;
   setMode: (mode: Mode) => Promise<void>;
+  /**
+   * Enters a mode using an account that already exists, instead of re-running
+   * `POST /auth/demo-login`. This is how a freshly registered user becomes the
+   * active session, so the app acts as *them* rather than as a seeded user.
+   */
+  adoptAccount: (mode: Mode, session: DemoLoginResponse) => void;
   resetDemo: () => Promise<void>;
   lastEventLabel: string | null;
 }
@@ -144,6 +150,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         /* private mode: ignore */
       }
       try {
+        // REGISTER is only a screen, so there is no seeded role to log into for it.
+        if (next === 'REGISTER') return;
         const login = await api.demoLogin(next);
         setSession(login);
       } catch (err) {
@@ -152,6 +160,17 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const adoptAccount = useCallback((next: Mode, account: DemoLoginResponse) => {
+    setModeState(next);
+    try {
+      window.localStorage.setItem(MODE_STORAGE_KEY, next);
+    } catch {
+      /* private mode: ignore */
+    }
+    setSession(account);
+    setError(null);
+  }, []);
 
   const resetDemo = useCallback(async () => {
     setLoading(true);
@@ -182,6 +201,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     flashIds,
     refresh,
     setMode,
+    adoptAccount,
     resetDemo,
     lastEventLabel,
   };
@@ -198,7 +218,7 @@ export function useFleet(): FleetContextValue {
 function readStoredMode(): Mode | null {
   try {
     const stored = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (stored === 'CONTROL_TOWER' || stored === 'BUSINESS' || stored === 'DRIVER') return stored;
+    if (stored === 'CONTROL_TOWER' || stored === 'BUSINESS' || stored === 'DRIVER' || stored === 'REGISTER') return stored;
   } catch {
     /* ignore */
   }

@@ -28,6 +28,9 @@ export function Business() {
   const [selected, setSelected] = useState<CapacityMatch | null>(null);
   const [confirmed, setConfirmed] = useState<Shipment | null>(null);
   const [step, setStep] = useState<Step>('SEARCH');
+  // Other trucks near the selected one, so surplus capacity is visible up front.
+  const [nearby, setNearby] = useState<Awaited<ReturnType<typeof api.nearbyCapacity>> | null>(null);
+  const [nearbyNote, setNearbyNote] = useState<string | null>(null);
 
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -109,8 +112,7 @@ export function Business() {
       setConfirmed(res.shipment);
       setStep('CONFIRMED');
       setSelected(null);
-      await refresh();
-    } catch (err) {
+      await refresh();    } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
       setMatches(null);
     } finally {
@@ -123,8 +125,33 @@ export function Business() {
     setSelected(null);
     setConfirmed(null);
     setMatches(null);
+    setNearby(null);
+    setNearbyNote(null);
     setError(null);
     setDeliveryError(null);
+  }
+
+  /**
+   * Once a truck is picked, ask the server which other trucks are closest and how much
+   * spare tonnage they still have. Distance is real great-circle arithmetic over stored
+   * coordinates, and the response says so, so the UI never implies a routing provider.
+   */
+  async function loadNearby(match: CapacityMatch) {
+    setNearby(null);
+    setNearbyNote(null);
+    try {
+      const weightT = Number(weight);
+      const res = await api.nearbyCapacity(match.truck.id, {
+        origin: match.offer.origin,
+        destination: match.offer.destination,
+        ...(Number.isFinite(weightT) && weightT > 0 ? { weightT } : {}),
+      });
+      setNearby(res);
+      setNearbyNote(res.note);
+    } catch {
+      // Suggestions are an aid, not a blocker: if this fails the booking still works.
+      setNearby(null);
+    }
   }
 
   /**
@@ -275,6 +302,7 @@ export function Business() {
                                     setStep('SELECTED');
                                     setOrigin(match.offer.origin);
                                     setDestination(match.offer.destination);
+                                    void loadNearby(match);
                                   }}
                                 >
                                   {isSelected ? 'Selected' : 'Select Capacity'}
@@ -331,25 +359,92 @@ export function Business() {
                     onClick={createShipment}
                     disabled={creating}
                   >
-                    {creating ? 'Reserving capacity…' : 'Create Shipment'}
+                    {creating ? 'Reserving capacity…' : 'Reserve capacity & request driver'}
                   </button>
-                  <p className="mt-2 text-[10px] text-ink-500">
-                    One server call reserves the capacity atomically and confirms the shipment. Spare tonnage on{' '}
-                    {selected.truck.id} drops immediately for every device.
+                  <p className="mt-2 text-[10px] leading-relaxed text-ink-500">
+                    One server call reserves the capacity atomically and holds the load as{' '}
+                    <span className="font-medium text-ink-400">CAPACITY_RESERVED</span>. It is not confirmed until the{' '}
+                    {selected.truck.id} driver accepts it on their screen — until then the truck will not be allowed
+                    to depart, and declining puts the tonnage back for you to rebook.
                   </p>
                 </Panel>
               )}
 
+              {step === 'SELECTED' && selected && nearby && nearby.suggestions.length > 0 && (
+                <Panel
+                  eyebrow="Nearby"
+                  title="Other trucks close to this one"
+                  bodyClassName="p-0"
+                >
+                  <ul className="divide-y divide-base-700">
+                    {nearby.suggestions.map((s) => (
+                      <li key={s.offer.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="font-mono text-xs font-semibold text-ink-100">{s.truck.id}</span>
+                          <span className="truncate text-[10px] text-ink-500">{s.truck.registrationNo}</span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <span className="tabular text-[11px] text-ink-300">{formatT(s.truck.availableT)} spare</span>
+                          {s.canAlsoCarry && Number(weight) > 0 && (
+                            <span className="rounded border border-healthy/35 bg-healthy/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.1em] text-healthy">
+                              can take this
+                            </span>
+                          )}
+                          <span className="tabular w-20 text-right text-[10px] text-ink-500">
+                            {s.proximityLabel}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {nearbyNote && (
+                    <p className="border-t border-base-700 px-4 py-2 text-[10px] leading-relaxed text-ink-600">
+                      {nearbyNote}
+                    </p>
+                  )}
+                </Panel>
+              )}
+
               {step === 'CONFIRMED' && confirmed && (
-                <div className="rounded-lg border border-healthy/40 bg-healthy/[0.06] p-4">
+                <div
+                  className={cn(
+                    'rounded-lg border p-4',
+                    confirmed.status === 'CAPACITY_RESERVED'
+                      ? 'border-warn/45 bg-warn/[0.06]'
+                      : 'border-healthy/40 bg-healthy/[0.06]',
+                  )}
+                >
                   <div className="flex items-center gap-2">
-                    <span className="grid h-5 w-5 place-items-center rounded-full border border-healthy/50 text-[11px] text-healthy">
-                      ✓
+                    <span
+                      className={cn(
+                        'grid h-5 w-5 place-items-center rounded-full border text-[11px]',
+                        confirmed.status === 'CAPACITY_RESERVED'
+                          ? 'border-warn/50 text-warn'
+                          : 'border-healthy/50 text-healthy',
+                      )}
+                    >
+                      {confirmed.status === 'CAPACITY_RESERVED' ? '⏳' : '✓'}
                     </span>
-                    <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-healthy">
-                      Shipment Confirmed
+                    <span
+                      className={cn(
+                        'text-2xs font-semibold uppercase tracking-[0.18em]',
+                        confirmed.status === 'CAPACITY_RESERVED' ? 'text-warn' : 'text-healthy',
+                      )}
+                    >
+                      {confirmed.status === 'CAPACITY_RESERVED'
+                        ? 'Capacity reserved — waiting for the driver'
+                        : 'Shipment Confirmed'}
                     </span>
                   </div>
+
+                  {confirmed.status === 'CAPACITY_RESERVED' && (
+                    <p className="mt-2.5 text-[11px] leading-relaxed text-ink-400">
+                      The tonnage is held on {confirmed.truckId} and no other shipper can take it, but the load is
+                      not confirmed yet. Switch to the <span className="text-ink-200">Driver</span> screen and
+                      accept it — the truck cannot depart until you do.
+                    </p>
+                  )}
+
                   <dl className="tabular mt-3 grid gap-x-6 gap-y-2.5 sm:grid-cols-3">
                     <SummaryRow label="Shipment ID" value={confirmed.id} mono />
                     <SummaryRow label="Truck ID" value={confirmed.truckId ?? '—'} mono />
@@ -363,7 +458,7 @@ export function Business() {
                   </dl>
                   <div className="mt-3">
                     <Placeholder>
-                      Payment capture is a phase-2 integration. This build stops at a confirmed, capacity-reserved
+                      Payment capture is a phase-2 integration. This build stops at a reserved, capacity-held
                       shipment — nothing claims a payment was taken.
                     </Placeholder>
                   </div>

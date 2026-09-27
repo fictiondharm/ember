@@ -72,6 +72,28 @@ export const api = {
   health: () => request<Record<string, unknown>>('/health'),
   state: () => request<FleetSnapshot>('/state'),
   demoLogin: (role: Role) => post<DemoLoginResponse>('/auth/demo-login', { role }),
+
+  /**
+   * Self-service onboarding. Returns the same `{ user, organization, driver }` shape
+   * as demoLogin, so a freshly registered account can be used like a seeded one.
+   */
+  register: (input: {
+    role: 'BUSINESS' | 'DRIVER';
+    name: string;
+    contact: string;
+    organizationName?: string;
+    truck?: { registrationNo: string; capacityT: number; origin: string; destination: string };
+  }) =>
+    post<{
+      ok: true;
+      mode: string;
+      warning: string;
+      user: DemoLoginResponse['user'];
+      organization: DemoLoginResponse['organization'];
+      driver: DemoLoginResponse['driver'];
+      truck: Truck | null;
+    }>('/auth/register', input),
+
   resetDemo: () => post<{ ok: true; trucks: number; shipments: number }>('/demo/reset'),
 
   trucks: () => request<{ trucks: Truck[] }>('/trucks'),
@@ -92,6 +114,28 @@ export const api = {
     return request<{ matches: CapacityMatch[]; count: number; note: string }>(`/capacity${suffix}`);
   },
 
+  /**
+   * Other trucks worth knowing about when one has been picked, nearest first.
+   * `distanceFromSelectedKm` is straight-line from stored coordinates.
+   */
+  nearbyCapacity: (truckId: string, params: { origin?: string; destination?: string; weightT?: number } = {}) => {
+    const qs = new URLSearchParams({ truckId });
+    if (params.origin) qs.set('origin', params.origin);
+    if (params.destination) qs.set('destination', params.destination);
+    if (params.weightT !== undefined) qs.set('weightT', String(params.weightT));
+    return request<{
+      selected: CapacityMatch | null;
+      selectedTruck: Truck | null;
+      selectedTruckSpareT: number | null;
+      suggestions: Array<CapacityMatch & {
+        distanceFromSelectedKm: number | null;
+        proximityLabel: string;
+        canAlsoCarry: boolean;
+      }>;
+      note: string;
+    }>(`/capacity/nearby?${qs.toString()}`);
+  },
+
   createShipment: (input: {
     shipperId: string;
     cargoName: string;
@@ -101,10 +145,65 @@ export const api = {
     capacityOfferId?: string;
     actorId?: string;
   }) =>
-    post<{ ok: true; shipment: Shipment; reserved: boolean; confirmed: boolean }>('/shipments', input),
+    post<{
+      ok: true;
+      shipment: Shipment;
+      reserved: boolean;
+      confirmed: boolean;
+      /** True when the load is now waiting on the driver's approval. */
+      awaitingDriverApproval: boolean;
+    }>('/shipments', input),
 
   shipments: () => request<{ shipments: Shipment[] }>('/shipments'),
   shipment: (id: string) => request<{ shipment: Shipment }>(`/shipments/${id}`),
+
+  /** The driver accepts the load. CAPACITY_RESERVED → CONFIRMED. */
+  acceptShipment: (id: string, actorId?: string) =>
+    post<{ ok: true; shipment: Shipment; acceptedBy: string }>(
+      `/shipments/${id}/confirm`,
+      actorId ? { actorId } : {},
+    ),
+
+  /** The driver declines. Releases the tonnage and returns the shipment to DRAFT. */
+  declineShipment: (id: string, reason?: string, actorId?: string) =>
+    post<{
+      ok: true;
+      declined: boolean;
+      shipment: Shipment;
+      releasedTruck: Truck | null;
+      releasedOffer: { id: string; availableT: number; status: string } | null;
+    }>(`/shipments/${id}/decline`, {
+      ...(reason ? { reason } : {}),
+      ...(actorId ? { actorId } : {}),
+    }),
+
+  /** The driver's approval queue: what is waiting on them, and what they already took. */
+  driverOffers: (driverId: string) =>
+    request<{
+      driver: { id: string; name: string; status: string; assignedTruckId: string | null } | null;
+      truck: Truck | null;
+      pending: Array<{
+        shipment: Shipment;
+        truck: Truck | null;
+        shipperName: string | null;
+        route: string;
+        estimatedPay: number;
+        currency: string;
+        awaitingDriver: boolean;
+      }>;
+      accepted: Array<{
+        shipment: Shipment;
+        truck: Truck | null;
+        shipperName: string | null;
+        route: string;
+        estimatedPay: number;
+        currency: string;
+        awaitingDriver: boolean;
+      }>;
+      counts: { pending: number; accepted: number };
+      note: string;
+    }>(`/driver/offers?driverId=${encodeURIComponent(driverId)}`),
+
   confirmDelivery: (id: string, actorId?: string) =>
     post<{ ok: true; shipment: Shipment; truck: Truck | null; truckCompleted: boolean }>(
       `/shipments/${id}/confirm-delivery`,

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authRouter } from './auth.js';
 import { capacityRouter } from './capacity.js';
 import { demoRouter } from './demo.js';
+import { driverRouter } from './driver.js';
 import { eventsRouter } from './events.js';
 import { healthRouter } from './health.js';
 import { incidentsRouter } from './incidents.js';
@@ -20,6 +21,7 @@ export function buildRouter(): Router {
   router.use(trucksRouter);
   router.use(capacityRouter);
   router.use(shipmentsRouter);
+  router.use(driverRouter);
   router.use(incidentsRouter);
   router.use(recoveryRouter);
   router.use(eventsRouter);
@@ -34,6 +36,7 @@ export const ENDPOINT_INDEX = [
   { method: 'GET', path: '/health', purpose: 'Service health + counts' },
   { method: 'GET', path: '/state', purpose: 'Full read-only snapshot (client refetch target)' },
   { method: 'POST', path: '/auth/demo-login', purpose: 'Seeded demo role selection' },
+  { method: 'POST', path: '/auth/register', purpose: 'Register as BUSINESS or DRIVER (no password/token — demo scope)' },
   { method: 'POST', path: '/demo/reset', purpose: 'Restore deterministic demo state' },
   { method: 'GET', path: '/organizations', purpose: 'List organizations' },
   { method: 'POST', path: '/organizations', purpose: 'Create organization' },
@@ -42,14 +45,17 @@ export const ENDPOINT_INDEX = [
   { method: 'POST', path: '/trucks', purpose: 'Register a truck' },
   { method: 'POST', path: '/trucks/:id/depart', purpose: 'Start journey (truck + shipments → IN_TRANSIT)' },
   { method: 'GET', path: '/capacity', purpose: 'Compatible open capacity search' },
+  { method: 'GET', path: '/capacity/nearby', purpose: 'Other trucks nearest the selected one, with real distance + spare tonnage' },
   { method: 'GET', path: '/capacity/:id', purpose: 'Capacity offer detail' },
   { method: 'POST', path: '/capacity/:id/reserve', purpose: 'Atomically reserve capacity for a DRAFT shipment' },
   { method: 'GET', path: '/shipments', purpose: 'List shipments' },
-  { method: 'POST', path: '/shipments', purpose: 'Create shipment (optionally reserve + confirm capacity)' },
+  { method: 'POST', path: '/shipments', purpose: 'Create shipment; with capacityOfferId reserves and leaves it awaiting driver approval' },
   { method: 'GET', path: '/shipments/:id', purpose: 'Shipment detail' },
-  { method: 'POST', path: '/shipments/:id/confirm', purpose: 'CAPACITY_RESERVED → CONFIRMED' },
+  { method: 'POST', path: '/shipments/:id/confirm', purpose: 'Driver accepts: CAPACITY_RESERVED → CONFIRMED' },
+  { method: 'POST', path: '/shipments/:id/decline', purpose: 'Driver declines: release tonnage, shipment → DRAFT' },
   { method: 'GET', path: '/shipments/:id/timeline', purpose: 'Append-only event timeline' },
   { method: 'POST', path: '/shipments/:id/confirm-delivery', purpose: 'IN_TRANSIT → DELIVERED (business confirms receipt)' },
+  { method: 'GET', path: '/driver/offers', purpose: 'Driver approval queue: pending offers + accepted loads' },
   { method: 'GET', path: '/incidents', purpose: 'List incidents' },
   { method: 'POST', path: '/incidents', purpose: 'Report incident (truck → INCIDENT, shipment → AT_RISK)' },
   { method: 'GET', path: '/incidents/:id', purpose: 'Incident detail' },

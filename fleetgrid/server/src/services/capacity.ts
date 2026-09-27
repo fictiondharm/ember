@@ -3,7 +3,7 @@ import { ApiError } from '../lib/errors.js';
 import { nowIso, round } from '../lib/ids.js';
 import { runExclusive } from '../lib/mutex.js';
 import { hub } from './realtime.js';
-import { canonicalLocation, etaLabelFor } from '../lib/geo.js';
+import { canonicalLocation, distanceKm, etaLabelFor, proximityLabel } from '../lib/geo.js';
 import type { CapacityOffer, Shipment, Truck } from '../types.js';
 
 export interface CapacitySearchInput {
@@ -118,14 +118,111 @@ export async function findAvailableCapacity(input: CapacitySearchInput): Promise
   return usable;
 }
 
+export interface NearbySuggestion extends CapacityMatch {
+  /** Great-circle distance from the selected truck, in km. Null if either position is unknown. */
+  distanceFromSelectedKm: number | null;
+  proximityLabel: string;
+  /** True when this other truck could take the same load that the selected one is carrying. */
+  canAlsoCarry: boolean;
+}
+
+/**
+ * GET /capacity/nearby — other trucks worth knowing about.
+ *
+ * When a shipper has picked a truck, two things are still useful: is there spare
+ * tonnage left on the truck they chose, and which other trucks on the same corridor
+ * sit closest by? This answers both from existing offers, ranked nearest-first.
+ *
+ * Distance is real great-circle arithmetic over stored coordinates. It is explicitly
+ * a proximity hint, not a drive distance or ETA — the Master PRD forbids presenting
+ * routing estimates as provider output, and we have no routing provider.
+ */
+export async function suggestNearbyCapacity(input: {
+  truckId: string;
+  origin?: string;
+  destination?: string;
+  weightT?: number;
+  limit?: number;
+}): Promise<{ selected: CapacityMatch | null; suggestions: NearbySuggestion[]; selectedTruck: Truck | null }> {
+  const [offers, trucks, drivers] = await Promise.all([
+    db.capacityOffers.get(),
+    db.trucks.get(),
+    db.drivers.get(),
+  ]);
+
+  const selectedTruck = trucks.find((t) => t.id === input.truckId) ?? null;
+
+  const decorate = (offer: CapacityOffer): CapacityMatch | null => {
+    const truck = trucks.find((t) => t.id === offer.truckId);
+    if (!truck) return null;
+    const driver = truck.driverId ? drivers.find((d) => d.id === truck.driverId) : undefined;
+    const origin = input.origin ? canonicalLocation(input.origin) : null;
+    const destination = input.destination ? canonicalLocation(input.destination) : null;
+    const matchesRoute =
+      (!origin || canonicalLocation(offer.origin) === origin) &&
+      (!destination || canonicalLocation(offer.destination) === destination);
+    const fits = !input.weightT || truck.availableT >= input.weightT;
+    const blockers: string[] = [];
+    if (offer.status === 'CLOSED') blockers.push('Capacity offer is closed');
+    if (BLOCKING_TRUCK_STATES.has(truck.status)) {
+      blockers.push(`Truck is ${truck.status.replace('_', ' ').toLowerCase()}`);
+    }
+    if (offer.availableT <= 0) blockers.push('No spare capacity remaining');
+    if (!matchesRoute) blockers.push('Route does not match the request');
+    if (!fits && input.weightT) {
+      blockers.push(`Only ${round(truck.availableT)}T spare, request needs ${round(input.weightT)}T`);
+    }
+    return {
+      offer,
+      truck,
+      driverName: driver?.name ?? null,
+      route: `${offer.origin} → ${offer.destination}`,
+      etaLabel: offer.departureAt ? etaLabelFor(offer.departureAt) : 'Unscheduled',
+      estimatedPrice: Math.round(truck.availableT * offer.pricePerT),
+      currency: 'INR',
+      matchesRequestedRoute: matchesRoute,
+      fitsRequestedWeight: fits,
+      blockers,
+    };
+  };
+
+  const selectedOffer = offers.find((o) => o.truckId === input.truckId) ?? null;
+  const selected = selectedOffer ? decorate(selectedOffer) : null;
+
+  const suggestions: NearbySuggestion[] = offers
+    .filter((o) => o.truckId !== input.truckId)
+    .map(decorate)
+    .filter((m): m is CapacityMatch => m !== null)
+    .map((m) => {
+      const distance = selectedTruck ? distanceKm(selectedTruck, m.truck) : null;
+      return {
+        ...m,
+        distanceFromSelectedKm: distance,
+        proximityLabel: proximityLabel(distance),
+        canAlsoCarry: input.weightT ? m.truck.availableT >= input.weightT : true,
+      };
+    })
+    // Genuinely usable first, then nearest — the driver-helpful ordering.
+    .sort((a, b) => {
+      const aBlocked = a.blockers.length > 0;
+      const bBlocked = b.blockers.length > 0;
+      if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
+      const ad = a.distanceFromSelectedKm ?? Number.POSITIVE_INFINITY;
+      const bd = b.distanceFromSelectedKm ?? Number.POSITIVE_INFINITY;
+      if (ad !== bd) return ad - bd;
+      return b.truck.availableT - a.truck.availableT;
+    })
+    .slice(0, input.limit ?? 5);
+
+  return { selected, suggestions, selectedTruck };
+}
+
 export interface ReserveInput {
   offerId: string;
   shipmentId: string;
   actorType?: 'BUSINESS' | 'AGENT' | 'OPERATOR';
   actorId?: string | null;
-}
-
-export interface ReserveResult {
+}export interface ReserveResult {
   truck: Truck;
   offer: CapacityOffer;
   shipment: Shipment;
