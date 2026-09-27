@@ -5,6 +5,7 @@ import type {
   DemoLoginResponse,
   FleetSnapshot,
   Incident,
+  Payment,
   RecoveryOption,
   RecoveryPlan,
   Role,
@@ -272,4 +273,35 @@ export const api = {
 
   recordEvent: (input: { eventType: string; shipmentId?: string; payload?: Record<string, unknown> }) =>
     post<{ ok: true; event: ShipmentEvent }>('/events', input),
+
+  // Dodo Payments Integrations
+  createDodoCheckout: (input: {
+    shipmentId?: string | null;
+    recoveryPlanId?: string | null;
+    amount: number;
+    currency?: string;
+    customerName?: string;
+    customerEmail?: string;
+    returnUrl?: string;
+  }) =>
+    post<{
+      payment: Payment;
+      checkoutUrl: string;
+      isSandbox: boolean;
+      provider: string;
+    }>('/payments/dodo/checkout', input),
+
+  confirmDodoPayment: (input: {
+    paymentId: string;
+    providerReference?: string;
+    paymentMethod?: string;
+  }) =>
+    post<{
+      status: string;
+      payment: Payment;
+      shipment: Shipment | null;
+    }>('/payments/dodo/confirm', input),
+
+  payments: () => request<{ payments: Payment[] }>('/payments'),
+  payment: (id: string) => request<{ payment: Payment }>(`/payments/${id}`),
 };

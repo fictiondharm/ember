@@ -193,6 +193,10 @@ export interface Payment {
   currency: string;
   status: PaymentStatus;
   providerReference: string | null;
+  checkoutUrl?: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  paymentMethod?: string | null;
   createdAt: string;
   updatedAt: string;
 }
