@@ -13,6 +13,7 @@ const CONNECTION_COPY: Record<ConnectionStatus, { label: string; dot: string; te
 };
 
 const MODES: Array<{ id: Mode; label: string; short: string }> = [
+  { id: 'LANDING', label: 'Landing Page', short: 'Landing' },
   { id: 'CONTROL_TOWER', label: 'Control Tower', short: 'Tower' },
   { id: 'LIVE_MAP', label: 'Live GPS Map', short: 'Live Map' },
   { id: 'PAYMENTS', label: 'Dodo Payments', short: 'Payments' },
@@ -32,7 +33,12 @@ export function AppHeader({ children }: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-base-600 bg-base-950/90 backdrop-blur-md">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 lg:px-6">
-        <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => void setMode('LANDING')}
+          className="flex items-center gap-2.5 text-left cursor-pointer transition-opacity hover:opacity-80"
+          title="Return to Landing Page"
+        >
           <FleetMark />
           <div className="leading-none">
             <div className="text-sm font-semibold tracking-[0.02em] text-ink-50">FLEETGRID</div>
@@ -40,7 +46,7 @@ export function AppHeader({ children }: AppHeaderProps) {
               AI Logistics Network
             </div>
           </div>
-        </div>
+        </button>
 
         <div className={cn('flex items-center gap-1.5 text-2xs font-medium uppercase tracking-[0.14em]', copy.text)}>
           <span className="relative flex h-1.5 w-1.5">

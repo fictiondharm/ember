@@ -159,8 +159,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         /* private mode: ignore */
       }
       try {
-        // REGISTER, LIVE_MAP, and PAYMENTS are screens, so there is no seeded role to log into for them.
-        if (next === 'REGISTER' || next === 'LIVE_MAP' || next === 'PAYMENTS') return;
+        // REGISTER, LIVE_MAP, PAYMENTS, and LANDING are screens, so there is no seeded role to log into for them.
+        if (next === 'REGISTER' || next === 'LIVE_MAP' || next === 'PAYMENTS' || next === 'LANDING') return;
         const login = await api.demoLogin(next);
         setSession(login);
       } catch (err) {
@@ -228,7 +228,17 @@ export function useFleet(): FleetContextValue {
 function readStoredMode(): Mode | null {
   try {
     const stored = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (stored === 'CONTROL_TOWER' || stored === 'BUSINESS' || stored === 'DRIVER' || stored === 'REGISTER') return stored;
+    if (
+      stored === 'LANDING' ||
+      stored === 'CONTROL_TOWER' ||
+      stored === 'LIVE_MAP' ||
+      stored === 'PAYMENTS' ||
+      stored === 'BUSINESS' ||
+      stored === 'DRIVER' ||
+      stored === 'REGISTER'
+    ) {
+      return stored as Mode;
+    }
   } catch {
     /* ignore */
   }

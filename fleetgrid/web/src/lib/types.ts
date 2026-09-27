@@ -8,7 +8,7 @@
  */
 export type Role = 'CONTROL_TOWER' | 'BUSINESS' | 'DRIVER' | 'OPERATOR' | 'VERIFIER';
 /** `REGISTER` is a screen, not a role — it hands off to BUSINESS or DRIVER. */
-export type Mode = 'CONTROL_TOWER' | 'LIVE_MAP' | 'PAYMENTS' | 'BUSINESS' | 'DRIVER' | 'REGISTER';
+export type Mode = 'LANDING' | 'CONTROL_TOWER' | 'LIVE_MAP' | 'PAYMENTS' | 'BUSINESS' | 'DRIVER' | 'REGISTER';
 
 export type TruckStatus =
   | 'AVAILABLE'

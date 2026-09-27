@@ -4,11 +4,13 @@ import { LiveMapView } from './views/LiveMapView';
 import { PaymentsView } from './views/PaymentsView';
 import { Business } from './views/Business';
 import { Driver } from './views/Driver';
+import { LandingView } from './views/LandingView';
 import { Register } from './views/Register';
 import { RoleSelect } from './views/RoleSelect';
 
 function Router() {
   const { mode } = useFleet();
+  if (mode === 'LANDING') return <LandingView />;
   if (mode === 'REGISTER') return <Register />;
   if (mode === 'CONTROL_TOWER') return <ControlTower />;
   if (mode === 'LIVE_MAP') return <LiveMapView />;

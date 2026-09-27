@@ -1,6 +1,7 @@
 @import '@fontsource-variable/inter';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
+@import 'leaflet/dist/leaflet.css';
 
 @tailwind base;
 @tailwind components;
@@ -103,7 +104,50 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+
+  /* Landing Page Design System Classes */
+  .container-fg { width: 100%; max-width: 1240px; margin-inline: auto; padding-inline: 1.25rem; }
+  @media (min-width: 640px) { .container-fg { padding-inline: 2rem; } }
+
+  .display {
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 0.96;
+    text-wrap: balance;
+  }
+  .h2 {
+    font-size: clamp(2.1rem, 4.6vw, 3.9rem);
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    text-wrap: balance;
+  }
+  .lede { color: #8b93a1; font-size: 1.0625rem; line-height: 1.6; max-width: 36rem; text-wrap: pretty; }
+  .tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.8s cubic-bezier(.2,.7,.2,1), transform 0.8s cubic-bezier(.2,.7,.2,1); }
+  .reveal.is-in { opacity: 1; transform: none; }
+
+  .dot-live { position: relative; display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: #3be39b; }
+  .dot-live::after { content: ""; position: absolute; inset: -4px; border-radius: 999px; border: 1px solid #3be39b; animation: ring 2.2s ease-out infinite; }
+
+  .node-ring { transform-box: fill-box; transform-origin: center; animation: node 3.2s ease-out infinite; }
+  .node-ring-fast { transform-box: fill-box; transform-origin: center; animation: node 1.4s ease-out infinite; }
+  .caret { display: inline-block; width: 7px; height: 14px; background: #3be39b; vertical-align: -2px; animation: blink 1s steps(2) infinite; }
+  .feed-in { animation: feedin 0.5s cubic-bezier(.2,.7,.2,1); }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(37, 42, 51, 0.45) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(37, 42, 51, 0.45) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
 }
+
+@keyframes ring { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(2.2); opacity: 0; } }
+@keyframes node { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(3.2); opacity: 0; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes feedin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
 @layer utilities {
   .scrollbar-thin::-webkit-scrollbar {

@@ -161,6 +161,7 @@ export function LiveMapView() {
                 selectedTruckId={selectedTruckId}
                 onSelectTruck={setSelectedTruckId}
                 height="100%"
+                showRerouteDetour={incidents.some((i) => i.status !== 'RESOLVED') || trucks.some((t) => t.status === 'INCIDENT')}
               />
             ) : (
               <div className="h-full w-full rounded-lg border border-base-600 bg-base-900 p-4">

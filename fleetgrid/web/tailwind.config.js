@@ -9,6 +9,7 @@ export default {
       },
       colors: {
         base: {
+          DEFAULT: '#07090D',
           950: '#08090D',
           900: '#0B0C11',
           850: '#0E1015',
@@ -18,6 +19,19 @@ export default {
           600: '#24272F',
           500: '#343845',
         },
+        raised: '#0d1016',
+        panel: '#11151c',
+        line: {
+          DEFAULT: '#252a33',
+          soft: '#181c24',
+        },
+        route: '#2c333e',
+        fg: '#f5f7fa',
+        dim: '#8b93a1',
+        faint: '#5a6270',
+        signal: '#3be39b',
+        caution: '#f2b33d',
+        fault: '#f0544f',
         ink: {
           50: '#F4F6F8',
           100: '#E4E7EC',
