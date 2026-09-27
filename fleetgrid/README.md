@@ -47,7 +47,7 @@ fleetgrid/
     src/services/         domain logic and state machines
     src/routes/           REST API + endpoint index
     src/seed/             deterministic demo dataset
-    test/flow.test.ts     end-to-end suite (85 checks, incl. two WebSocket clients)
+    test/flow.test.ts     end-to-end suite (133 checks, incl. two WebSocket clients)
   web/                    React + Vite + Tailwind single-page app
     src/store/            snapshot context, refetch-on-event, mode persistence
     src/views/            ControlTower, Business, Driver, RoleSelect
@@ -82,11 +82,18 @@ Enforced server-side in `server/src/types.ts`; an illegal transition is a `409`,
 
 - **Truck** `AVAILABLE → ASSIGNED → LOADING → IN_TRANSIT → DELIVERED`, with `DELAYED`, `INCIDENT`, and
   `RECOVERY` branches. Completing a recovery returns the disabled truck to `AVAILABLE` so the demo is
-  repeatable without a reset.
+  repeatable without a reset. A truck whose last cargo is delivered also completes.
 - **Shipment** `DRAFT → CAPACITY_RESERVED → CONFIRMED → IN_TRANSIT → DELIVERED`, plus `AT_RISK` and
-  `RECOVERY`.
+  `RECOVERY`. `DELIVERED` is reached only by the business confirming receipt via
+  `POST /shipments/:id/confirm-delivery` — the driver dropping the cargo is not proof of delivery, and
+  the client cannot assert it locally. The call is idempotent, so a double tap on two devices is safe.
 - **Incident** `OPEN → ANALYZING → PLAN_READY → RESOLVED`, plus `ESCALATED`.
 - **Recovery plan** `PENDING_APPROVAL → APPROVED → EXECUTING → COMPLETED`, plus `REJECTED`.
+
+> **Known gap.** Recovery execution leaves the *receiving* truck `ASSIGNED`, and there is no
+> `ASSIGNED → DELIVERED` edge in the machine. So confirming delivery on a recovered load delivers the
+> shipment but cannot also complete the truck; the response says why in `truckNote` rather than
+> inventing the transition.
 
 ### Recovery, honestly
 
@@ -98,8 +105,18 @@ The approval gate cannot be bypassed: executing a plan that is not `APPROVED` re
 re-executing a completed plan is idempotent.
 
 Deliberately **not** faked in this phase: payment capture, notification delivery (rows are stored as
-`PENDING` and never marked delivered), and blockchain proof anchoring. Their agent tools return
-`501 NOT_IMPLEMENTED` with a reason.
+`PENDING` and never marked delivered), and blockchain proof anchoring. Both layers fail the same way —
+the agent tools *and* the REST routes (`POST /payments/create`, `POST /webhooks/dodo`,
+`POST /proof/anchor`) return `501 NOT_IMPLEMENTED` with a reason. The routes validate input first, so a
+malformed request is a `400` rather than a misleading `501`, and `POST /proof/anchor` reports the real
+event hash with `blockchainTx: null` instead of inventing a transaction.
+
+### Agent tool contract
+
+`GET /agent/tools` returns the readable catalog plus a formal JSON Schema (draft 2020-12) under
+`contract`: per-tool input, output, and failure shapes, `$defs` for every entity, and `PLACEHOLDER`
+tools that declare a failure shape and no success output. A test asserts the schema and the catalog
+never drift on names, order, or status, and that every `$ref` resolves.
 
 ---
 
@@ -138,7 +155,9 @@ drivers, three trucks on the Bengaluru → Chennai corridor, and two delivered h
 `npm test` boots the real server on a spare port and exercises the golden flow over HTTP and two
 independent WebSocket clients: seed integrity, capacity search, oversell rejection, atomic reservation,
 departure, incident creation, recovery options, the approval gate (including a bypass attempt that must
-fail), execution, idempotent re-execution, timeline, and reset. 85 checks, no mocking of business rules.
+fail), execution, idempotent re-execution, timeline, delivery confirmation, the honesty of
+the unwired integration routes, the published tool contract, and reset. 133 checks, no
+mocking of business rules.
 
 ---
 

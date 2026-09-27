@@ -6,6 +6,7 @@ import { runExclusive } from '../lib/mutex.js';
 import { reserveCapacity, syncOfferForTruck } from './capacity.js';
 import { assertTransition, recordEvent } from './events.js';
 import { hub } from './realtime.js';
+import { transitionTruck } from './trucks.js';
 import { SHIPMENT_TRANSITIONS, type Shipment, type ShipmentStatus, type Truck } from '../types.js';
 
 export const MAX_SHIPMENT_WEIGHT_T = 50;
@@ -196,6 +197,134 @@ export async function confirmShipment(
     });
     hub.broadcast('shipment.updated', updated);
     return updated;
+  });
+}
+
+/** Statuses that still represent cargo the truck is carrying or about to carry. */
+const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  'DRAFT',
+  'CAPACITY_RESERVED',
+  'CONFIRMED',
+  'IN_TRANSIT',
+  'AT_RISK',
+  'RECOVERY',
+];
+
+export interface ConfirmDeliveryResult {
+  shipment: Shipment;
+  truck: Truck | null;
+  /** True when this was the truck's last active shipment, so the truck also completed. */
+  truckCompleted: boolean;
+  /**
+   * Set when the truck was left behind. Recovery execution leaves the receiving
+   * truck `ASSIGNED`, and the Master PRD truck machine has no `ASSIGNED → DELIVERED`
+   * edge, so the truck cannot complete here without inventing a transition. The
+   * shipment is still delivered; this says plainly why the truck did not follow.
+   */
+  truckNote?: string;
+}
+
+/**
+ * POST /shipments/:id/confirm-delivery — IN_TRANSIT → DELIVERED.
+ *
+ * The business is the party that confirms receipt, so the actor is BUSINESS. The
+ * driver dropping the cargo is not proof of delivery, and the client is never
+ * allowed to assert it: the transition is validated against the state machine here
+ * and recorded as a hashed event.
+ *
+ * Idempotent, like `confirmShipment`: re-confirming a delivered shipment returns the
+ * same row rather than a 409, so a double tap on three devices is safe.
+ *
+ * When this was the truck's last active shipment the truck completes too
+ * (IN_TRANSIT → DELIVERED). That is a terminal state, so `npm run reset` is how the
+ * demo starts a fresh run — the alternative, leaving a truck IN_TRANSIT with nothing
+ * aboard, is not a state an operator would recognise.
+ */
+export async function confirmDelivery(
+  shipmentId: string,
+  actor?: { actorType?: 'BUSINESS' | 'AGENT' | 'OPERATOR'; actorId?: string | null },
+): Promise<ConfirmDeliveryResult> {
+  return runExclusive(async () => {
+    const shipment = await getShipment(shipmentId);
+    const truck = shipment.truckId ? await db.trucks.findById(shipment.truckId) : undefined;
+
+    if (shipment.status === 'DELIVERED') {
+      return {
+        shipment,
+        truck: truck ?? null,
+        truckCompleted: truck?.status === 'DELIVERED',
+        ...(truck && truck.status !== 'DELIVERED'
+          ? { truckNote: `Shipment ${shipment.id} was already delivered; truck ${truck.id} is ${truck.status}.` }
+          : {}),
+      };
+    }
+
+    assertTransition(SHIPMENT_TRANSITIONS, shipment.status, 'DELIVERED', `Shipment ${shipment.id}`);
+
+    const updated = await db.shipments.update(shipmentId, { status: 'DELIVERED', updatedAt: nowIso() });
+    if (!updated) throw ApiError.notFound(`Shipment ${shipmentId} disappeared during delivery confirmation.`);
+
+    await recordEvent({
+      eventType: 'shipment.delivered',
+      shipmentId: updated.id,
+      truckId: updated.truckId,
+      payload: {
+        from: shipment.status,
+        to: 'DELIVERED',
+        destination: updated.destination,
+        confirmedBy: actor?.actorType ?? 'BUSINESS',
+      },
+      actorType: actor?.actorType ?? 'BUSINESS',
+      actorId: actor?.actorId ?? null,
+    });
+    hub.broadcast('shipment.updated', updated);
+
+    if (!truck) {
+      return {
+        shipment: updated,
+        truck: null,
+        truckCompleted: false,
+        truckNote: `Shipment ${updated.id} has no truck assigned, so no truck state changed.`,
+      };
+    }
+
+    const stillCarrying = await db.shipments.find(
+      (s) => s.truckId === truck.id && s.id !== updated.id && ACTIVE_SHIPMENT_STATUSES.includes(s.status),
+    );
+
+    if (stillCarrying.length > 0) {
+      return {
+        shipment: updated,
+        truck,
+        truckCompleted: false,
+        truckNote: `Truck ${truck.id} still carries ${stillCarrying.map((s) => s.id).join(', ')}.`,
+      };
+    }
+
+    if (truck.status !== 'IN_TRANSIT' && truck.status !== 'DELAYED') {
+      return {
+        shipment: updated,
+        truck,
+        truckCompleted: false,
+        truckNote:
+          `Truck ${truck.id} has no cargo left but is ${truck.status}, and the Master PRD truck machine ` +
+          `has no ${truck.status} → DELIVERED transition. The shipment is delivered; the truck needs an ` +
+          `explicit arrival to complete. Inventing that edge here would bypass the state machine.`,
+      };
+    }
+
+    const completedTruck = await transitionTruck(
+      truck,
+      'DELIVERED',
+      {},
+      {
+        eventType: 'truck.delivered',
+        shipmentId: updated.id,
+        payload: { deliveredShipmentIds: [updated.id], reason: 'All assigned cargo delivered' },
+      },
+    );
+
+    return { shipment: updated, truck: completedTruck, truckCompleted: true };
   });
 }
 

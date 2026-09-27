@@ -26,4 +26,15 @@ export class ApiError extends Error {
   static unprocessable(message: string, details?: unknown): ApiError {
     return new ApiError(422, 'UNPROCESSABLE', message, details);
   }
+
+  /**
+   * A capability the PRD requires but this build has not implemented.
+   *
+   * Used for external integrations that are deliberately deferred. It exists so
+   * the API fails loudly and honestly instead of 404-ing (looks like a typo) or
+   * returning a fabricated success.
+   */
+  static notImplemented(message: string, details?: unknown): ApiError {
+    return new ApiError(501, 'NOT_IMPLEMENTED', message, details);
+  }
 }

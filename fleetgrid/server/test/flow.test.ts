@@ -363,7 +363,167 @@ async function main(): Promise<void> {
   });
   check('Valid event is appended with a hash', goodEvent.status === 201 && goodEvent.body.event.hash.length === 64, goodEvent.body);
 
-  section('11. Reset restores the exact demo state');
+  section('11. Business confirms delivery');
+  const businessEventsBeforeDelivery = business.events.length;
+
+  // The recovered shipment is aboard FG-041, which recovery execution left ASSIGNED.
+  const deliver = await api(`/shipments/${shipmentId}/confirm-delivery`, {
+    method: 'POST',
+    body: JSON.stringify({ actorId: demoLogin.body.user.id }),
+  });
+  check('POST /shipments/:id/confirm-delivery succeeds', deliver.status === 200, deliver.body);
+  check('Shipment is DELIVERED', deliver.body.shipment?.status === 'DELIVERED', deliver.body.shipment);
+  check('Shipment stayed on the recovered truck FG-041', deliver.body.shipment?.truckId === 'FG-041', deliver.body.shipment);
+  check('FG-041 is not forced to DELIVERED from ASSIGNED', deliver.body.truck?.status === 'ASSIGNED' && deliver.body.truckCompleted === false, deliver.body.truck);
+  check('The response explains why the truck did not complete',
+    String(deliver.body.truckNote ?? '').includes('no ASSIGNED → DELIVERED transition'), deliver.body.truckNote);
+
+  const deliveredTimeline = await api(`/shipments/${shipmentId}/timeline`);
+  const deliveredTypes = deliveredTimeline.body.events.map((e: any) => e.eventType);
+  check('Timeline records shipment.delivered', deliveredTypes.includes('shipment.delivered'), deliveredTypes);
+  const deliveredEvent = deliveredTimeline.body.events.find(
+    (e: any) => e.eventType === 'shipment.delivered' && e.shipmentId === shipmentId,
+  );
+  check('The delivery event belongs to this shipment, not the seeded one', !!deliveredEvent, deliveredEvent);
+  check('Delivery event is hashed', typeof deliveredEvent?.hash === 'string' && deliveredEvent.hash.length === 64);
+  check('Delivery event is attributed to BUSINESS', deliveredEvent?.actorType === 'BUSINESS', deliveredEvent);
+  check('Delivery event still fakes no blockchain proof',
+    deliveredEvent?.proofStatus === 'NOT_ANCHORED' && deliveredEvent?.blockchainTx === null, deliveredEvent);
+
+  const deliverAgain = await api(`/shipments/${shipmentId}/confirm-delivery`, { method: 'POST', body: JSON.stringify({}) });
+  check('Re-confirming delivery is idempotent, not a 409', deliverAgain.status === 200, deliverAgain.body);
+  const afterSecondDelivery = await api(`/shipments/${shipmentId}/timeline`);
+  check('Idempotent re-confirm appended no duplicate event',
+    afterSecondDelivery.body.events.filter((e: any) => e.eventType === 'shipment.delivered' && e.shipmentId === shipmentId).length === 1,
+    afterSecondDelivery.body.events.filter((e: any) => e.eventType === 'shipment.delivered').map((e: any) => e.id));
+
+  const draftShipment = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({ shipperId, cargoName: 'Never Departed', origin: 'Bengaluru', destination: 'Chennai', weightT: 0.5 }),
+  });
+  check('A DRAFT shipment was created for the guard check', draftShipment.status === 201, draftShipment.body);
+  const earlyDelivery = await api(`/shipments/${draftShipment.body.shipment.id}/confirm-delivery`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  check('Confirming delivery on a shipment that never departed is a 409', earlyDelivery.status === 409, earlyDelivery.body);
+  check('The 409 names the illegal transition',
+    earlyDelivery.body.error?.code === 'CONFLICT' && String(earlyDelivery.body.error?.message).includes('DRAFT'),
+    earlyDelivery.body.error);
+
+  // A truck that departed normally is IN_TRANSIT, and the machine does allow
+  // IN_TRANSIT → DELIVERED, so the truck must complete once its last cargo lands.
+  const capacity052 = await api('/capacity?origin=Bengaluru&destination=Chennai&weightT=1');
+  const offer052 = capacity052.body.matches.find((m: any) => m.truck.id === 'FG-052');
+  const directShipment = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({
+      shipperId, cargoName: 'Direct Load', origin: 'Bengaluru', destination: 'Chennai', weightT: 1,
+      capacityOfferId: offer052.offer.id, actorId: demoLogin.body.user.id,
+    }),
+  });
+  const directShipmentId = directShipment.body.shipment?.id as string;
+  check('A second shipment was booked on FG-052', directShipment.status === 201 && directShipment.body.shipment?.truckId === 'FG-052', directShipment.body.shipment);
+  const depart052 = await api('/trucks/FG-052/depart', { method: 'POST', body: JSON.stringify({}) });
+  check('FG-052 departs and reaches IN_TRANSIT', depart052.body.truckStatus === 'IN_TRANSIT', depart052.body);
+
+  const deliverDirect = await api(`/shipments/${directShipmentId}/confirm-delivery`, {
+    method: 'POST',
+    body: JSON.stringify({ actorId: demoLogin.body.user.id }),
+  });
+  check('The IN_TRANSIT shipment is DELIVERED', deliverDirect.body.shipment?.status === 'DELIVERED', deliverDirect.body.shipment);
+  check('FG-052 completes once its last cargo is delivered',
+    deliverDirect.body.truckCompleted === true && deliverDirect.body.truck?.status === 'DELIVERED', deliverDirect.body.truck);
+  const timeline052 = await api(`/shipments/${directShipmentId}/timeline`);
+  check('FG-052 records truck.delivered',
+    timeline052.body.events.some((e: any) => e.eventType === 'truck.delivered' && e.truckId === 'FG-052'),
+    timeline052.body.events.map((e: any) => e.eventType));
+
+  await sleep(300);
+  check('Business device received the delivery frame for this shipment',
+    business.events.length > businessEventsBeforeDelivery
+      && business.events.some(
+        (e) => e.type === 'shipment.updated' && e.payload?.id === shipmentId && e.payload?.status === 'DELIVERED',
+      ),
+    business.events.filter((e) => e.type === 'shipment.updated').map((e) => `${e.payload?.id}:${e.payload?.status}`));
+
+  section('12. Unwired integrations fail honestly');
+  const paymentCreate = await api('/payments/create', {
+    method: 'POST',
+    body: JSON.stringify({ shipmentId, amount: 850, currency: 'INR' }),
+  });
+  check('POST /payments/create returns 501, not 404', paymentCreate.status === 501, paymentCreate.body);
+  check('Payment 501 names the missing provider',
+    paymentCreate.body.error?.code === 'NOT_IMPLEMENTED' && String(paymentCreate.body.error?.message).includes('Dodo'),
+    paymentCreate.body.error);
+  check('Payment 501 leaves the shipment unchanged', paymentCreate.body.error?.details?.shipmentStatus === 'unchanged');
+
+  const badPayment = await api('/payments/create', { method: 'POST', body: JSON.stringify({ amount: 0, currency: 'INR' }) });
+  check('Payments validate input before reporting 501', badPayment.status === 400, badPayment.body);
+
+  const dodoHook = await api('/webhooks/dodo', {
+    method: 'POST',
+    body: JSON.stringify({ eventId: 'evt_dodo_1', type: 'payment.succeeded' }),
+  });
+  check('POST /webhooks/dodo returns 501', dodoHook.status === 501, dodoHook.body);
+  check('Webhook 501 does not claim the event was accepted',
+    dodoHook.body.error?.code === 'NOT_IMPLEMENTED', dodoHook.body.error);
+
+  const noTarget = await api('/proof/anchor', { method: 'POST', body: JSON.stringify({}) });
+  check('POST /proof/anchor with no target is a 400', noTarget.status === 400, noTarget.body);
+
+  const anchorTarget = deliveredEvent?.id as string;
+  const anchor = await api('/proof/anchor', { method: 'POST', body: JSON.stringify({ eventId: anchorTarget }) });
+  check('POST /proof/anchor returns 501', anchor.status === 501, anchor.body);
+  check('Anchor 501 reports the real hash', anchor.body.error?.details?.hash === deliveredEvent?.hash, anchor.body.error?.details);
+  check('Anchor 501 keeps proofStatus NOT_ANCHORED', anchor.body.error?.details?.proofStatus === 'NOT_ANCHORED');
+  check('Anchor 501 never invents a transaction hash', anchor.body.error?.details?.blockchainTx === null);
+
+  const anchoredEvent = (await api('/events?limit=500')).body.events.find((e: any) => e.id === anchorTarget);
+  check('Event was not mutated by the failed anchor',
+    anchoredEvent?.proofStatus === 'NOT_ANCHORED' && anchoredEvent?.blockchainTx === null, anchoredEvent);
+
+  section('13. Agent tool contract is published as JSON Schema');
+  const tools = await api('/agent/tools');
+  check('GET /agent/tools returns 200', tools.status === 200);
+  const catalog: any[] = tools.body.tools ?? [];
+  const contract = tools.body.contract;
+  check('Contract declares 13 tools', contract?.tools?.length === 13, contract?.tools?.length);
+  check('Contract has a JSON Schema $schema and $id',
+    contract?.$schema === 'https://json-schema.org/draft/2020-12/schema' && typeof contract?.$id === 'string', {
+      $schema: contract?.$schema, $id: contract?.$id,
+    });
+
+  const catalogNames = catalog.map((t) => t.name);
+  const schemaNames = contract.tools.map((t: any) => t.name);
+  check('Every catalog tool has a schema entry', catalogNames.every((n) => schemaNames.includes(n)), { catalogNames, schemaNames });
+  check('No schema entry is missing from the catalog', schemaNames.every((n) => catalogNames.includes(n)), { catalogNames, schemaNames });
+  check('Catalog order matches schema order', JSON.stringify(catalogNames) === JSON.stringify(schemaNames));
+  check('Status agrees between catalog and schema',
+    catalog.every((t) => contract.tools.find((s: any) => s.name === t.name)?.status === t.status));
+  check('11 tools are READY and 2 are PLACEHOLDER',
+    catalog.filter((t) => t.status === 'READY').length === 11 && catalog.filter((t) => t.status === 'PLACEHOLDER').length === 2,
+    catalog.map((t) => `${t.name}:${t.status}`));
+
+  check('Every tool declares an input schema', contract.tools.every((t: any) => t.input && t.input.type));
+  check('Every READY tool declares an output schema',
+    contract.tools.filter((t: any) => t.status === 'READY').every((t: any) => !!t.output));
+  check('PLACEHOLDER tools declare a failure shape and no success output',
+    contract.tools.filter((t: any) => t.status === 'PLACEHOLDER').every((t: any) => t.unavailable && !t.output));
+  check('The payment placeholder names Dodo Payments',
+    contract.tools.find((t: any) => t.name === 'create_payment_intent')?.unavailable?.description?.includes('Dodo'));
+  check('The proof placeholder forbids a fabricated tx hash',
+    contract.tools.find((t: any) => t.name === 'anchor_proof')?.unavailable?.description?.includes('no transaction hash'),
+    contract.tools.find((t: any) => t.name === 'anchor_proof')?.unavailable?.description);
+
+  const schemaText = JSON.stringify(contract);
+  const refs = [...schemaText.matchAll(/#\/\$defs\/([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+  const defs = Object.keys(contract.$defs ?? {});
+  check('Every $ref in the contract resolves', refs.every((r) => defs.includes(r)), { unresolved: refs.filter((r) => !defs.includes(r)) });
+  check('No schema entry leaks a secret-shaped field',
+    !/(api[_-]?key|secret|password|private[_-]?key)/i.test(schemaText));
+
+  section('14. Reset restores the exact demo state');
   await api('/demo/reset', { method: 'POST' });
   const afterReset = await api('/state');
   const t027 = afterReset.body.trucks.find((t: any) => t.id === 'FG-027');

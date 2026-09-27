@@ -4,6 +4,7 @@ import { db } from '../store/db.js';
 import { asyncHandler } from '../middleware/errors.js';
 import { validateBody } from '../middleware/validate.js';
 import { TOOL_CATALOG } from '../services/agentTools.js';
+import { AGENT_TOOL_CONTRACT } from '../services/agentToolSchema.js';
 
 export const miscRouter: Router = Router();
 
@@ -21,10 +22,17 @@ miscRouter.get(
   }),
 );
 
-/** GET /agent/tools — the tool contract the future recovery agent must use. */
+/**
+ * GET /agent/tools — the tool contract the recovery agent must use.
+ *
+ * Returns the readable catalog plus the formal JSON Schema (draft 2020-12) for
+ * every tool's input, output, and failure shape, so an external tool-runner can be
+ * pointed straight at this endpoint.
+ */
 miscRouter.get('/agent/tools', (_req, res) => {
   res.json({
     tools: TOOL_CATALOG,
+    contract: AGENT_TOOL_CONTRACT,
     note: 'Mutations are only possible through these validated tools. No unrestricted database access for the agent.',
   });
 });

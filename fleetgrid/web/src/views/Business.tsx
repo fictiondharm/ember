@@ -32,6 +32,8 @@ export function Business() {
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [delivering, setDelivering] = useState<string | null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [timelineFor, setTimelineFor] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<ShipmentEvent[]>([]);
 
@@ -122,6 +124,26 @@ export function Business() {
     setConfirmed(null);
     setMatches(null);
     setError(null);
+    setDeliveryError(null);
+  }
+
+  /**
+   * The business is the party that confirms receipt, so this is the only place the
+   * delivery transition is triggered. It is a real server call: the backend
+   * validates the state machine, records a hashed event, and broadcasts, so the
+   * other devices see the delivered status without this client deciding anything.
+   */
+  async function confirmDelivery(shipment: Shipment) {
+    setDelivering(shipment.id);
+    setDeliveryError(null);
+    try {
+      await api.confirmDelivery(shipment.id, session?.user.id);
+      await refresh();
+    } catch (err) {
+      setDeliveryError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setDelivering(null);
+    }
   }
 
   return (
@@ -440,8 +462,27 @@ export function Business() {
                     </div>
                   )}
                   {activeShipment.status === 'IN_TRANSIT' && (
-                    <div className="mt-3 rounded-md border border-accent/35 bg-accent/[0.08] px-3 py-2 text-[11px] text-[#8FB4FF]">
-                      In transit. Watch the Control Tower for live status.
+                    <div className="mt-3 space-y-2.5">
+                      <div className="rounded-md border border-accent/35 bg-accent/[0.08] px-3 py-2 text-[11px] text-[#8FB4FF]">
+                        In transit. Confirm receipt once the load reaches {activeShipment.destination}.
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-primary w-full"
+                        disabled={delivering === activeShipment.id}
+                        onClick={() => confirmDelivery(activeShipment)}
+                      >
+                        {delivering === activeShipment.id ? 'Confirming…' : 'Confirm Delivery'}
+                      </button>
+                      <p className="text-[10px] leading-relaxed text-ink-500">
+                        The server validates the state machine, records a hashed delivery event, and releases the
+                        truck once it has no cargo left. No other device can mark this shipment delivered.
+                      </p>
+                    </div>
+                  )}
+                  {deliveryError && (
+                    <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+                      {deliveryError}
                     </div>
                   )}
                 </Panel>

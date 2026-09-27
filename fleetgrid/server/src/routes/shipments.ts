@@ -1,6 +1,7 @@
 ﻿import { Router } from 'express';
 import { z } from 'zod';
 import {
+  confirmDelivery,
   confirmShipment,
   createShipment,
   getShipment,
@@ -96,5 +97,34 @@ shipmentsRouter.get(
   '/shipments/:id/timeline',
   asyncHandler(async (req, res) => {
     res.json(await shipmentTimeline(requiredParam(req, 'id')));
+  }),
+);
+
+const confirmDeliverySchema = z.object({
+  actorId: z.string().min(2).nullish(),
+});
+
+/**
+ * POST /shipments/:id/confirm-delivery — IN_TRANSIT → DELIVERED.
+ *
+ * The business confirms receipt. The state machine is enforced in the service, so
+ * confirming a shipment that never departed returns 409 rather than a silent write.
+ */
+shipmentsRouter.post(
+  '/shipments/:id/confirm-delivery',
+  validateBody(confirmDeliverySchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof confirmDeliverySchema>;
+    const result = await confirmDelivery(requiredParam(req, 'id'), {
+      actorType: 'BUSINESS',
+      actorId: body.actorId ?? null,
+    });
+    res.json({
+      ok: true,
+      shipment: result.shipment,
+      truck: result.truck,
+      truckCompleted: result.truckCompleted,
+      ...(result.truckNote ? { truckNote: result.truckNote } : {}),
+    });
   }),
 );

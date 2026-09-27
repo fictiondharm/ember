@@ -5,6 +5,7 @@ import { demoRouter } from './demo.js';
 import { eventsRouter } from './events.js';
 import { healthRouter } from './health.js';
 import { incidentsRouter } from './incidents.js';
+import { integrationsRouter } from './integrations.js';
 import { miscRouter } from './misc.js';
 import { recoveryRouter } from './recovery.js';
 import { shipmentsRouter } from './shipments.js';
@@ -23,6 +24,7 @@ export function buildRouter(): Router {
   router.use(recoveryRouter);
   router.use(eventsRouter);
   router.use(demoRouter);
+  router.use(integrationsRouter);
 
   return router;
 }
@@ -47,6 +49,7 @@ export const ENDPOINT_INDEX = [
   { method: 'GET', path: '/shipments/:id', purpose: 'Shipment detail' },
   { method: 'POST', path: '/shipments/:id/confirm', purpose: 'CAPACITY_RESERVED → CONFIRMED' },
   { method: 'GET', path: '/shipments/:id/timeline', purpose: 'Append-only event timeline' },
+  { method: 'POST', path: '/shipments/:id/confirm-delivery', purpose: 'IN_TRANSIT → DELIVERED (business confirms receipt)' },
   { method: 'GET', path: '/incidents', purpose: 'List incidents' },
   { method: 'POST', path: '/incidents', purpose: 'Report incident (truck → INCIDENT, shipment → AT_RISK)' },
   { method: 'GET', path: '/incidents/:id', purpose: 'Incident detail' },
@@ -59,8 +62,11 @@ export const ENDPOINT_INDEX = [
   { method: 'POST', path: '/recovery-plans/:id/execute', purpose: 'Execute APPROVED plan (idempotent)' },
   { method: 'GET', path: '/events', purpose: 'Event log' },
   { method: 'POST', path: '/events', purpose: 'Append an event' },
-  { method: 'GET', path: '/agent/tools', purpose: 'Agent tool contract' },
+  { method: 'GET', path: '/agent/tools', purpose: 'Agent tool contract + JSON Schema' },
   { method: 'GET', path: '/payments', purpose: 'Payments placeholder read model' },
+  { method: 'POST', path: '/payments/create', purpose: 'Create payment intent (501 — Dodo not connected)' },
+  { method: 'POST', path: '/webhooks/dodo', purpose: 'Dodo payment webhook (501 — Dodo not connected)' },
+  { method: 'POST', path: '/proof/anchor', purpose: 'Anchor event hash on EVM testnet (501 — not configured)' },
   { method: 'GET', path: '/notifications', purpose: 'Notification placeholder read model' },
   { method: 'WS', path: '/realtime', purpose: 'Realtime state/events' },
 ] as const;

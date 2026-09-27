@@ -31,7 +31,7 @@ explicit error or a labelled placeholder rather than a fabricated success.
 | Control Tower / Business / Driver UIs | **Done** |
 | Agent tools + approval gate + event log | **Done** (11 of 13 tools) |
 | Deterministic seed / reset | **Done** |
-| Automated test suite | **Done** — 85 backend checks, 30 browser checks |
+| Automated test suite | **Done** — 133 backend checks, 30 browser checks |
 | PostgreSQL (schema + migrations) | **Not done** — JSON file store instead |
 | Dodo Payments | **Not done** — endpoint returns honest 501 |
 | ElevenLabs voice | **Not done** — text incident path is complete |
@@ -55,11 +55,27 @@ explicit error or a labelled placeholder rather than a fabricated success.
 - Append-only `ShipmentEvent` log, SHA-256 hashed per event.
 - Every important state change emits a realtime event *after* commit.
 - Deterministic seed and `POST /demo/reset` restore the exact starting scenario.
-- 85-check end-to-end test suite (`server/test/flow.test.ts`), passing.
+- 133-check end-to-end test suite (`server/test/flow.test.ts`), passing.
+- **Delivery confirmation** — `POST /shipments/:id/confirm-delivery` moves
+  `IN_TRANSIT → DELIVERED`, is idempotent, records a hashed `shipment.delivered`
+  event attributed to `BUSINESS`, and refuses with `409` on a shipment that never
+  departed. The business is the only party that can confirm receipt, and the
+  client cannot assert it locally.
+- **Explicit `501` integration routes** — `POST /payments/create`,
+  `POST /webhooks/dodo`, and `POST /proof/anchor` exist and return
+  `501 NOT_IMPLEMENTED` with a message naming the missing provider. They validate
+  input first (so a malformed request is a `400`, not a `501`), and they never
+  return a fabricated success or transaction hash.
 
 ### Agent layer
 - 13 tools declared in the Master PRD contract; **11 fully implemented**,
   2 explicit placeholders (`create_payment_intent`, `anchor_proof`).
+- The contract is published as a **formal JSON Schema** (draft 2020-12) at
+  `GET /agent/tools` under `contract` — input, output, and failure shape per tool,
+  with `$defs` for every entity. `PLACEHOLDER` tools declare a failure shape and no
+  success output, so the schema cannot describe a success that cannot happen. A test
+  asserts the schema and `TOOL_CATALOG` never drift apart on names, order, or status,
+  and that every `$ref` resolves.
 - Tools are the only mutation path; read tools return authoritative backend data.
 - Recovery reasoning is **deterministic and explainable** — operational facts
   (`3.1T spare, ~17 min arrival, compatible Chennai route`), not hidden chain-of-thought.
@@ -78,15 +94,20 @@ explicit error or a labelled placeholder rather than a fabricated success.
 - Driver: identity, truck, route, capacity, Start Journey, incident report with
   transcript confirmation, recovery instruction, cargo handoff confirmation.
 - Business: create shipment, capacity results, reserve, payment status, tracking,
-  revised ETA, disruption/recovery notifications.
+  revised ETA, disruption/recovery notifications, and **Confirm Delivery** on an
+  in-transit load.
 - Responsive down to 390px with no horizontal overflow (verified).
 
 ### Known-good behaviour worth calling out
 - A truck that completes recovery returns to `AVAILABLE` rather than being stranded
   in `RECOVERY`, and its driver returns to `AVAILABLE`.
+- A truck that departs normally and delivers its last cargo also completes
+  (`IN_TRANSIT → DELIVERED`), so a finished run does not sit in transit forever.
 - The Control Tower recovery receipt **persists** after execution and survives a
   page reload, instead of vanishing on the state change that completed it.
 - `/demo/reset` returns the whole system to a byte-identical starting state.
+- Re-confirming a delivery, or re-executing a recovery, is idempotent rather than a
+  `409` — a double tap on two devices cannot double-move cargo or double-append events.
 
 ---
 
@@ -107,8 +128,9 @@ service APIs, keep the JSON store as a zero-config fallback, and verify a fresh
 database migrates and seeds cleanly.
 
 ### 2. Payments (Dodo)
-`POST /payments/create` and `POST /webhooks/dodo` return an explicit
-`501` with a message naming the missing integration.
+`POST /payments/create` and `POST /webhooks/dodo` exist and return an explicit
+`501` naming the missing provider, with the shipment left unchanged. Input is
+validated first, so a malformed request is a `400` rather than a misleading `501`.
 
 To do: one simple capacity-reservation product/price path, backend-created intent,
 idempotent webhook handling, and shipment confirmation only after the backend verifies
@@ -124,8 +146,9 @@ incident to the backend. Must be idempotent on repeated webhook delivery, and mu
 claim success when the incident did not persist.
 
 ### 4. Blockchain proof
-Events are already SHA-256 hashed. `POST /proof/anchor` returns an honest error and
-`proofStatus` remains `NOT_ANCHORED`.
+Events are already SHA-256 hashed. `POST /proof/anchor` returns an honest `501` that
+reports the **real** hash it would anchor, leaves `proofStatus` at `NOT_ANCHORED`, and
+returns `blockchainTx: null`. It does not mutate the event.
 
 To do: anchor a critical event hash on an EVM testnet, store the transaction reference,
 and flip status through `PENDING` → `CONFIRMED`/`FAILED`. **Never display a fabricated
@@ -139,7 +162,13 @@ environment variables, and verify three separate laptops hit the same environmen
 - `get_route_options` returns deterministic estimates, not a real routing provider.
   Distances/ETAs are labelled demo estimates.
 - The map is a schematic route visual, deliberately not a fragile map animation.
-- Business "confirm delivery" is not yet a button in the UI.
+- Recovery execution leaves the **receiving** truck `ASSIGNED` rather than
+  `IN_TRANSIT`, and the Master PRD truck machine has no `ASSIGNED → DELIVERED` edge.
+  So confirming delivery on a recovered load delivers the shipment but cannot also
+  complete the truck; the response says so in `truckNote` instead of inventing the
+  transition. Either recovery should put the truck in transit, or the PRD machine
+  should grow that edge — a product decision, not a code fix.
+- Notification rows are stored as `PENDING` and never marked delivered.
 
 ---
 
@@ -159,26 +188,30 @@ assumptions documented.
 - §8 Architecture — **partial**: realtime + agent layer done; PostgreSQL and Render not.
 - §9 Backend authority rules — **done**.
 - §10 Core database schema — **entities done, SQL schema not**.
-- §11 Agent tools — **11 of 13 done**, 2 honest placeholders.
+- §11 Agent tools — **11 of 13 done**, 2 honest placeholders. Contract published as
+  formal JSON Schema at `GET /agent/tools`.
 - §12 Agent decision policy — **done** (deterministic, explainable).
-- §13 API contract — **most endpoints done**; `/payments/create`, `/webhooks/dodo`,
-  `/proof/anchor` are explicit 501s.
+- §13 API contract — **done**; `/payments/create`, `/webhooks/dodo`, `/proof/anchor`
+  exist and return explicit, provider-named 501s.
 - §14 Three-laptop UX — **done**, verified with three concurrent browser clients.
 - §15 Realtime contract — **done**.
 - §16 Sponsor integrations — **not done** (all four are the remaining work).
 - §17 Deterministic demo data — **done** (FG-027 / FG-041 / FG-052 as specified).
 - §18 Demo safety — **done** (idempotency keys, honest loading/pending states).
-- §19 Definition of Done — **13 of 19 items done**; the 6 open items are payment,
-  ElevenLabs, blockchain anchoring, Render deployment, shared persistent database,
-  and delivery confirmation.
+- §19 Definition of Done — **14 of 19 items done**; the 5 open items are payment,
+  ElevenLabs, blockchain anchoring, Render deployment, and the shared persistent
+  database.
 
-### `02_Agent_1_Product_Agent_PRD.docx` — **substantially done**
+### `02_Agent_1_Product_Agent_PRD.docx` — **done**
 Input/output schemas, tool contracts, incident → impact → capacity → comparison →
 plan workflow, human approval gate, execution verification, readable event log, and
 deterministic fallback recovery are all implemented and covered by the acceptance
-criteria. Remaining: the tool contract table is not yet exported as a formal
-JSON-schema artifact, and there is no LLM narrative layer (the PRD explicitly permits
-deterministic option generation, so this is a quality upgrade, not a gap).
+criteria. **The tool contract table is now exported as a formal JSON Schema**
+(draft 2020-12) at `GET /agent/tools`, with per-tool input, output, and failure
+shapes, `$defs` for every entity, `PLACEHOLDER` tools that cannot describe success,
+and a test that keeps the schema and `TOOL_CATALOG` in step. There is still no LLM
+narrative layer, but the PRD explicitly permits deterministic option generation, so
+that is a quality upgrade rather than a gap.
 
 ### `03_Agent_2_Backend_Data_PRD.docx` — **8 of 9 acceptance criteria done**
 Done: entities and fields, state transitions, all core APIs, atomic reservation,
@@ -188,12 +221,12 @@ reset, health endpoint.
 
 ### `04_Agent_3_Frontend_PRD.docx` — **done, with two partials**
 Role selection, Business dashboard, create shipment, capacity results, shipment
-tracking, Control Tower overview, incident detail, agent activity timeline, recovery
-options, and approval confirmation are all present, with realtime rules honoured
-(events refetch authoritative state; connection status shown; reconnect refetches).
-Two partials: **payment status** is a labelled placeholder rather than a live Dodo
-status, and the **proof panel** shows the real hash and an honest
-`NOT_ANCHORED` status instead of a confirmed transaction.
+tracking, delivery confirmation, Control Tower overview, incident detail, agent
+activity timeline, recovery options, and approval confirmation are all present, with
+realtime rules honoured (events refetch authoritative state; connection status shown;
+reconnect refetches). Two partials: **payment status** is a labelled placeholder
+rather than a live Dodo status, and the **proof panel** shows the real hash and an
+honest `NOT_ANCHORED` status instead of a confirmed transaction.
 
 ### `05_Agent_4_Voice_Integrations_PRD.docx` — **UI done, ElevenLabs not done**
 Driver identity/truck/route/capacity, Start Journey, transcript and incident
@@ -207,7 +240,9 @@ sandbox, no Render deployment, and no testnet anchoring. The PRD's fallback
 requirement is satisfied: unavailable providers degrade to clearly labelled
 placeholders instead of blocking the demo. The critical remaining criterion is that
 **no fake transaction hash is ever displayed** — currently guaranteed by
-construction, since `anchor_proof` throws rather than inventing a hash.
+construction: `POST /proof/anchor` and the `anchor_proof` tool both return the real
+hash with `blockchainTx: null` and `proofStatus: NOT_ANCHORED`, and a test asserts
+the failed anchor leaves the event unmutated.
 
 ---
 
@@ -237,7 +272,7 @@ Or, from the repo root, `npm --prefix fleetgrid run dev`.
 | --- | --- |
 | `npm run dev` | Starts API and web together with prefixed logs |
 | `npm run reset` | Restores the deterministic demo state |
-| `npm test --prefix server` | Runs the 85-check backend suite |
+| `npm test --prefix server` | Runs the 133-check backend suite (needs the API running) |
 | `npm run typecheck --prefix server` | Server typecheck |
 | `npm run typecheck --prefix web` | Web typecheck |
 | `npm run build --prefix web` | Production web build |
@@ -255,6 +290,9 @@ The seeded scenario has truck **FG-027** with 3.8T spare on Bengaluru → Chenna
 5. **Control Tower** — approve the plan, then execute recovery.
 6. **All three** — the replacement truck is assigned, the handoff is recorded, the
    business sees the revised ETA, and the event timeline shows hashed proof.
+7. **Business** — once the load lands, press **Confirm Delivery** on the active
+   shipment. The server validates the transition, records a hashed
+   `shipment.delivered` event, and the driver and Control Tower see it immediately.
 
 Open the three roles in **three separate browser windows** to see shared realtime
 state. `npm run reset` puts everything back to the start.
@@ -269,6 +307,7 @@ fleetgrid/
     src/store/       JSON persistence (swap target for PostgreSQL)
     src/services/    Business logic: capacity, incidents, recovery, agent tools
     src/routes/      REST endpoints + WebSocket upgrade
+                     (integrations.ts holds the honest 501 routes)
     src/seed/        Deterministic demo data
     test/            End-to-end suite
   web/               React + Vite frontend
@@ -284,7 +323,7 @@ FleetGrid_PRD_Pack/  The specification this was built against
 - **No PostgreSQL.** JSON file store with atomic writes and a mutex. Correct for a
   single-process demo, not multi-instance.
 - **No payment, voice, or blockchain provider is connected.** All three return honest
-  errors or labelled placeholders.
+  `501`s or labelled placeholders; none reports a fabricated success.
 - **Not deployed.** Runs locally; no public URL yet.
 - **Route estimates are deterministic demo values**, not a routing provider.
 - **Auth is demo-role login only** — seeded users, no passwords or sessions. The Master

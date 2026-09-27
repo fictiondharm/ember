@@ -105,6 +105,11 @@ export const api = {
 
   shipments: () => request<{ shipments: Shipment[] }>('/shipments'),
   shipment: (id: string) => request<{ shipment: Shipment }>(`/shipments/${id}`),
+  confirmDelivery: (id: string, actorId?: string) =>
+    post<{ ok: true; shipment: Shipment; truck: Truck | null; truckCompleted: boolean }>(
+      `/shipments/${id}/confirm-delivery`,
+      actorId ? { actorId } : {},
+    ),
   timeline: (id: string) =>
     request<{
       shipment: Shipment;
