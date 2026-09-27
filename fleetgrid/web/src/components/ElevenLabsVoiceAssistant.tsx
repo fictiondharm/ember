@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { useFleet } from '../store/FleetContext';
 import { cn } from '../lib/format';
@@ -55,8 +55,290 @@ export function ElevenLabsVoiceAssistant({
   const [showSettings, setShowSettings] = useState(false);
   const [engineUsed, setEngineUsed] = useState<'ELEVENLABS' | 'BROWSER_TTS'>('BROWSER_TTS');
 
+  const transcriptRef = useRef('');
+  const isListeningRef = useRef(false);
+  const isProcessingRef = useRef(false);
   const recognitionRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const silenceTimerRef = useRef<number | null>(null);
+
+  const saveApiKey = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('ELEVENLABS_API_KEY', key);
+  };
+
+  // High quality Browser Speech Synthesis with Chrome resume fix
+  const fallbackSpeech = useCallback((text: string) => {
+    setEngineUsed('BROWSER_TTS');
+    if (!('speechSynthesis' in window)) {
+      setIsSpeaking(false);
+      return;
+    }
+
+    try {
+      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      utterance.lang = 'en-US';
+
+      // Pick the best available natural English voice
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        const preferred =
+          voices.find((v) => v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) ||
+          voices.find((v) => v.lang === 'en-IN') ||
+          voices.find((v) => v.lang.startsWith('en')) ||
+          voices[0];
+        if (preferred) utterance.voice = preferred;
+      }
+
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+      };
+      utterance.onend = () => {
+        setIsSpeaking(false);
+      };
+      utterance.onerror = (e) => {
+        console.warn('[SpeechSynthesis] Utterance error:', e);
+        setIsSpeaking(false);
+      };
+
+      // Slight delay to avoid Chromium speechSynthesis race condition
+      setTimeout(() => {
+        try {
+          window.speechSynthesis.resume();
+          window.speechSynthesis.speak(utterance);
+        } catch (err) {
+          console.warn('[SpeechSynthesis] speak error:', err);
+          setIsSpeaking(false);
+        }
+      }, 50);
+    } catch (err) {
+      console.warn('[SpeechSynthesis] Failed:', err);
+      setIsSpeaking(false);
+    }
+  }, []);
+
+  // Speaks text using ElevenLabs API (or falls back cleanly to Browser Speech Synthesis)
+  const speakText = useCallback(
+    async (text: string) => {
+      setIsSpeaking(true);
+
+      const trimmedKey = apiKey?.trim();
+      if (trimmedKey && trimmedKey.length > 10) {
+        try {
+          setEngineUsed('ELEVENLABS');
+          const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+            method: 'POST',
+            headers: {
+              'xi-api-key': trimmedKey,
+              'Content-Type': 'application/json',
+              Accept: 'audio/mpeg',
+            },
+            body: JSON.stringify({
+              text,
+              model_id: 'eleven_multilingual_v2',
+              voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.8,
+              },
+            }),
+          });
+
+          if (response.ok) {
+            const blob = await response.blob();
+            const audioUrl = URL.createObjectURL(blob);
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+            audio.onended = () => setIsSpeaking(false);
+            audio.onerror = () => {
+              fallbackSpeech(text);
+            };
+            await audio.play();
+            return;
+          } else {
+            console.warn('[ElevenLabs] API returned status', response.status, 'falling back to Browser TTS');
+          }
+        } catch (err) {
+          console.warn('[ElevenLabs] Fetch error, falling back:', err);
+        }
+      }
+
+      // Browser TTS Fallback
+      fallbackSpeech(text);
+    },
+    [apiKey, voiceId, fallbackSpeech],
+  );
+
+  // Parses voice commands and executes authoritative state updates
+  const processVoiceCommand = useCallback(
+    async (rawText: string) => {
+      const commandText = rawText?.trim();
+      if (!commandText || isProcessingRef.current) return;
+
+      if (silenceTimerRef.current) {
+        window.clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+
+      // Stop speech recognition while processing and responding
+      if (recognitionRef.current && isListeningRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      setIsListening(false);
+      isListeningRef.current = false;
+
+      setIsProcessing(true);
+      isProcessingRef.current = true;
+      const text = commandText.toLowerCase();
+
+      try {
+        // 1. EMERGENCY SOS / INCIDENT
+        if (
+          text.includes('emergency') ||
+          text.includes('sos') ||
+          text.includes('breakdown') ||
+          text.includes('accident') ||
+          text.includes('smoke') ||
+          text.includes('puncture') ||
+          text.includes('overheat')
+        ) {
+          let loc = 'Hosur NH-48 Highway km 42';
+          if (text.includes('bangalore') || text.includes('bengaluru')) loc = 'Bengaluru Electronic City Flyover';
+          if (text.includes('krishnagiri')) loc = 'Krishnagiri Toll Plaza NH-48';
+          if (text.includes('chennai')) loc = 'Sriperumbudur Industrial Corridor';
+
+          await api.createIncident({
+            truckId: truckId || 'FG-027',
+            type: text.includes('accident') ? 'ACCIDENT' : 'TRUCK_BREAKDOWN',
+            location: loc,
+            severity: 'CRITICAL',
+            description: `🚨 CRITICAL EMERGENCY SOS: Driver ${driverName} reported via ElevenLabs voice beacon: "${commandText}"`,
+          });
+
+          const reply = `Emergency SOS beacon activated for truck ${truckId || 'FG-027'} near ${loc}. Control Tower has dispatched emergency recovery and reroute protocol.`;
+          setAiResponse(reply);
+          await refresh();
+          await speakText(reply);
+          return;
+        }
+
+        // 2. FREIGHT BOOKING VIA VOICE
+        if (
+          text.includes('book') ||
+          text.includes('ship') ||
+          text.includes('load') ||
+          text.includes('transport') ||
+          text.includes('send')
+        ) {
+          // Extract Weight
+          const weightMatch = text.match(/(\d+(\.\d+)?)\s*(ton|tonne|t\b)/i);
+          const weightT = weightMatch && weightMatch[1] ? parseFloat(weightMatch[1]) : 6.0;
+
+          // Extract Origin & Destination
+          let origin = 'Bengaluru';
+          let destination = 'Chennai';
+
+          if (text.includes('hosur to chennai') || (text.includes('from hosur') && text.includes('chennai'))) {
+            origin = 'Hosur';
+            destination = 'Chennai';
+          } else if (text.includes('krishnagiri to chennai')) {
+            origin = 'Krishnagiri';
+            destination = 'Chennai';
+          } else if (text.includes('bengaluru to hosur')) {
+            origin = 'Bengaluru';
+            destination = 'Hosur';
+          }
+
+          // Extract Cargo Name
+          let cargoName = 'Automotive Components';
+          if (text.includes('electronics') || text.includes('phone') || text.includes('laptop'))
+            cargoName = 'Consumer Electronics';
+          if (text.includes('cement') || text.includes('steel') || text.includes('iron'))
+            cargoName = 'Industrial Steel & Construction Cargo';
+          if (text.includes('fmcg') || text.includes('food') || text.includes('grocery'))
+            cargoName = 'Packaged FMCG Goods';
+          if (text.includes('pharma') || text.includes('medicine'))
+            cargoName = 'Pharmaceutical Supplies';
+
+          const shipper = snapshot.organizations.find((o) => o.type === 'SHIPPER') || snapshot.organizations[0];
+          const shipperId = shipper?.id || 'org_abc_distributors';
+
+          const matchedOffer =
+            snapshot.capacityOffers.find(
+              (o) => o.origin === origin && o.destination === destination && o.availableT >= weightT,
+            ) || snapshot.capacityOffers[0];
+
+          const shipmentRes = await api.createShipment({
+            shipperId,
+            cargoName,
+            weightT,
+            origin,
+            destination,
+            ...(matchedOffer ? { capacityOfferId: matchedOffer.id } : {}),
+          });
+
+          const confirmedId = shipmentRes.shipment?.id || 'SHP-NEW';
+          const assignedTruck = shipmentRes.shipment?.truckId || truckId || 'FG-027';
+
+          const reply = `Booking confirmed! Reserved ${weightT} tonnes of ${cargoName} from ${origin} to ${destination} on truck ${assignedTruck}. Reference ${confirmedId}. Status is capacity reserved.`;
+          setAiResponse(reply);
+          await refresh();
+          await speakText(reply);
+          return;
+        }
+
+        // 3. STATUS QUERY
+        if (
+          text.includes('status') ||
+          text.includes('location') ||
+          text.includes('where') ||
+          text.includes('telemetry') ||
+          text.includes('speed')
+        ) {
+          const tr = snapshot.trucks.find((t) => t.id === truckId) || snapshot.trucks[0];
+          const assigned = snapshot.shipments.filter((s) => s.truckId === tr?.id && s.status !== 'DELIVERED');
+
+          let reply = `Truck ${tr?.id || truckId || 'FG-027'} is currently ${tr?.status || 'AVAILABLE'} on route ${tr?.origin || 'Bengaluru'} to ${tr?.destination || 'Chennai'}. Available spare capacity is ${tr?.availableT ?? 0} tonnes.`;
+          if (assigned.length > 0 && assigned[0]) {
+            reply += ` Carrying active shipment ${assigned[0].cargoName} (${assigned[0].weightT} tonnes).`;
+          }
+          setAiResponse(reply);
+          await speakText(reply);
+          return;
+        }
+
+        // 4. GREETINGS & CASUAL INTERACTION
+        if (text.includes('hello') || text.includes('hi') || text.includes('hey') || text.includes('morning')) {
+          const greetingReply = `Hello ${driverName}! FleetGrid AI Voice Assistant is online and active. You can speak commands to book freight, query truck status, or declare an emergency SOS.`;
+          setAiResponse(greetingReply);
+          await speakText(greetingReply);
+          return;
+        }
+
+        // 5. GENERAL DISPATCH ASSISTANT FALLBACK
+        const fallbackReply = `Acknowledged: "${commandText}". I am ready. You can say "Book 8 tonnes auto parts to Chennai", "What is the status of truck FG-027", or "Emergency SOS breakdown".`;
+        setAiResponse(fallbackReply);
+        await speakText(fallbackReply);
+      } catch (err) {
+        const errorMsg = `Unable to complete voice request: ${(err as Error).message}`;
+        setAiResponse(errorMsg);
+        await speakText(errorMsg);
+      } finally {
+        setIsProcessing(false);
+        isProcessingRef.current = false;
+      }
+    },
+    [truckId, driverName, snapshot, refresh, speakText],
+  );
 
   // Initialize Web Speech Recognition
   useEffect(() => {
@@ -65,35 +347,59 @@ export function ElevenLabsVoiceAssistant({
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-IN'; // English (India) with support for Indian accents
 
       recognition.onstart = () => {
         setIsListening(true);
+        isListeningRef.current = true;
       };
 
       recognition.onresult = (event: any) => {
         let currentTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          currentTranscript += event.results[i][0].transcript;
+        for (let i = 0; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript + ' ';
         }
+        currentTranscript = currentTranscript.trim();
+        transcriptRef.current = currentTranscript;
         setTranscript(currentTranscript);
+
+        // Auto-process speech after 1.5 seconds of silence
+        if (silenceTimerRef.current) {
+          window.clearTimeout(silenceTimerRef.current);
+        }
+        silenceTimerRef.current = window.setTimeout(() => {
+          if (transcriptRef.current.trim() && !isProcessingRef.current) {
+            void processVoiceCommand(transcriptRef.current);
+          }
+        }, 1500);
       };
 
       recognition.onerror = (event: any) => {
         console.warn('[VoiceAssistant] Speech recognition error:', event.error);
-        setIsListening(false);
+        if (event.error !== 'no-speech') {
+          setIsListening(false);
+          isListeningRef.current = false;
+        }
       };
 
       recognition.onend = () => {
         setIsListening(false);
+        isListeningRef.current = false;
+        // If recognition closed and we have pending speech that wasn't processed yet
+        if (transcriptRef.current.trim() && !isProcessingRef.current) {
+          void processVoiceCommand(transcriptRef.current);
+        }
       };
 
       recognitionRef.current = recognition;
     }
 
     return () => {
+      if (silenceTimerRef.current) {
+        window.clearTimeout(silenceTimerRef.current);
+      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -102,225 +408,65 @@ export function ElevenLabsVoiceAssistant({
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
-  }, []);
-
-  const saveApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('ELEVENLABS_API_KEY', key);
-  };
+  }, [processVoiceCommand]);
 
   const startListening = () => {
     setTranscript('');
+    transcriptRef.current = '';
     setAiResponse(null);
+    if (silenceTimerRef.current) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     if (audioRef.current) audioRef.current.pause();
-    window.speechSynthesis?.cancel();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
 
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
+        setIsListening(true);
+        isListeningRef.current = true;
       } catch (err) {
-        console.warn('Recognition already started or error:', err);
+        console.warn('Recognition start warning:', err);
       }
     } else {
-      alert('Speech Recognition is not supported by this browser. Please use the quick command chips below.');
+      alert('Speech Recognition is not supported by your browser. Please use the quick command buttons below.');
     }
   };
 
   const stopListening = () => {
+    if (silenceTimerRef.current) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch {}
     }
     setIsListening(false);
-    if (transcript.trim()) {
-      void processVoiceCommand(transcript);
-    }
-  };
+    isListeningRef.current = false;
 
-  // Speaks text using ElevenLabs API (or falls back to Browser Speech Synthesis)
-  const speakText = async (text: string) => {
-    setIsSpeaking(true);
-
-    if (apiKey && apiKey.trim().length > 10) {
-      try {
-        setEngineUsed('ELEVENLABS');
-        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-          method: 'POST',
-          headers: {
-            'xi-api-key': apiKey.trim(),
-            'Content-Type': 'application/json',
-            Accept: 'audio/mpeg',
-          },
-          body: JSON.stringify({
-            text,
-            model_id: 'eleven_multilingual_v2',
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.8,
-            },
-          }),
-        });
-
-        if (response.ok) {
-          const blob = await response.blob();
-          const audioUrl = URL.createObjectURL(blob);
-          const audio = new Audio(audioUrl);
-          audioRef.current = audio;
-          audio.onended = () => setIsSpeaking(false);
-          audio.onerror = () => {
-            fallbackSpeech(text);
-          };
-          await audio.play();
-          return;
-        } else {
-          console.warn('[ElevenLabs] API returned status', response.status, 'falling back to Browser TTS');
-        }
-      } catch (err) {
-        console.warn('[ElevenLabs] Fetch error:', err);
-      }
-    }
-
-    // High quality Browser Speech Synthesis Fallback
-    fallbackSpeech(text);
-  };
-
-  const fallbackSpeech = (text: string) => {
-    setEngineUsed('BROWSER_TTS');
-    if (!('speechSynthesis' in window)) {
-      setIsSpeaking(false);
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoice =
-      voices.find((v) => v.lang === 'en-IN') ||
-      voices.find((v) => v.lang.startsWith('en')) ||
-      voices[0];
-    if (englishVoice) utterance.voice = englishVoice;
-
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Parses voice commands and executes authoritative state updates
-  const processVoiceCommand = async (commandText: string) => {
-    setIsProcessing(true);
-    const text = commandText.toLowerCase();
-
-    try {
-      // 1. EMERGENCY SOS / INCIDENT
-      if (text.includes('emergency') || text.includes('sos') || text.includes('breakdown') || text.includes('accident') || text.includes('smoke')) {
-        let loc = 'Hosur NH-48 Highway km 42';
-        if (text.includes('bangalore') || text.includes('bengaluru')) loc = 'Bengaluru Electronic City Flyover';
-        if (text.includes('krishnagiri')) loc = 'Krishnagiri Toll Plaza NH-48';
-        if (text.includes('chennai')) loc = 'Sriperumbudur Industrial Corridor';
-
-        await api.createIncident({
-          truckId: truckId || 'FG-027',
-          type: text.includes('accident') ? 'ACCIDENT' : 'TRUCK_BREAKDOWN',
-          location: loc,
-          severity: 'CRITICAL',
-          description: `🚨 CRITICAL EMERGENCY SOS: Driver ${driverName} reported via ElevenLabs voice beacon: "${commandText}"`,
-        });
-
-        const reply = `Emergency SOS beacon activated for truck ${truckId || 'FG-027'} near ${loc}. Control Tower has dispatched emergency recovery and reroute protocol.`;
-        setAiResponse(reply);
-        await refresh();
-        await speakText(reply);
-        return;
-      }
-
-      // 2. FREIGHT BOOKING VIA VOICE
-      if (text.includes('book') || text.includes('ship') || text.includes('load') || text.includes('transport')) {
-        // Extract Weight
-        const weightMatch = text.match(/(\d+(\.\d+)?)\s*(ton|tonne|t\b)/i);
-        const weightT = weightMatch && weightMatch[1] ? parseFloat(weightMatch[1]) : 6.0;
-
-        // Extract Origin & Destination
-        let origin = 'Bengaluru';
-        let destination = 'Chennai';
-
-        if (text.includes('hosur to chennai') || (text.includes('from hosur') && text.includes('chennai'))) {
-          origin = 'Hosur';
-          destination = 'Chennai';
-        } else if (text.includes('krishnagiri to chennai')) {
-          origin = 'Krishnagiri';
-          destination = 'Chennai';
-        } else if (text.includes('bengaluru to hosur')) {
-          origin = 'Bengaluru';
-          destination = 'Hosur';
-        }
-
-        // Extract Cargo Name
-        let cargoName = 'Automotive Components';
-        if (text.includes('electronics') || text.includes('phone')) cargoName = 'Consumer Electronics';
-        if (text.includes('cement') || text.includes('steel') || text.includes('iron')) cargoName = 'Industrial Steel & Construction Cargo';
-        if (text.includes('fmcg') || text.includes('food') || text.includes('grocery')) cargoName = 'Packaged FMCG Goods';
-        if (text.includes('pharma') || text.includes('medicine')) cargoName = 'Pharmaceutical Supplies';
-
-        const shipper = snapshot.organizations.find((o) => o.type === 'SHIPPER') || snapshot.organizations[0];
-        const shipperId = shipper?.id || 'org_abc_distributors';
-
-        const matchedOffer = snapshot.capacityOffers.find(
-          (o) => o.origin === origin && o.destination === destination && o.availableT >= weightT,
-        ) || snapshot.capacityOffers[0];
-
-        const shipmentRes = await api.createShipment({
-          shipperId,
-          cargoName,
-          weightT,
-          origin,
-          destination,
-          ...(matchedOffer ? { capacityOfferId: matchedOffer.id } : {}),
-        });
-
-        const confirmedId = shipmentRes.shipment?.id || 'SHP-NEW';
-        const assignedTruck = shipmentRes.shipment?.truckId || truckId || 'FG-027';
-
-        const reply = `Booking confirmed! Reserved ${weightT} tonnes of ${cargoName} from ${origin} to ${destination} on truck ${assignedTruck}. Shipment reference ${confirmedId}. Status is capacity reserved.`;
-        setAiResponse(reply);
-        await refresh();
-        await speakText(reply);
-        return;
-      }
-
-      // 3. STATUS QUERY
-      if (text.includes('status') || text.includes('location') || text.includes('where')) {
-        const tr = snapshot.trucks.find((t) => t.id === truckId) || snapshot.trucks[0];
-        const assigned = snapshot.shipments.filter((s) => s.truckId === tr?.id && s.status !== 'DELIVERED');
-
-        let reply = `Truck ${tr?.id || truckId || 'FG-027'} is currently ${tr?.status || 'AVAILABLE'} on route ${tr?.origin || 'Bengaluru'} to ${tr?.destination || 'Chennai'}. Available spare capacity is ${tr?.availableT ?? 0} tonnes.`;
-        if (assigned.length > 0 && assigned[0]) {
-          reply += ` Carrying active shipment ${assigned[0].cargoName} (${assigned[0].weightT} tonnes).`;
-        }
-        setAiResponse(reply);
-        await speakText(reply);
-        return;
-      }
-
-      // 4. GENERAL DISPATCH ASSISTANT
-      const fallbackReply = `Acknowledged: "${commandText}". FleetGrid AI Voice Co-Pilot is connected to your cab. You can say "Book 8 tonnes auto parts to Chennai" or "Emergency SOS breakdown near Hosur".`;
-      setAiResponse(fallbackReply);
-      await speakText(fallbackReply);
-    } catch (err) {
-      const errorMsg = `Unable to complete request: ${(err as Error).message}`;
-      setAiResponse(errorMsg);
-      await speakText(errorMsg);
-    } finally {
-      setIsProcessing(false);
+    const speech = transcriptRef.current.trim() || transcript.trim();
+    if (speech && !isProcessingRef.current) {
+      void processVoiceCommand(speech);
     }
   };
 
   const handleQuickCommand = (cmdText: string) => {
     setTranscript(cmdText);
+    transcriptRef.current = cmdText;
     void processVoiceCommand(cmdText);
+  };
+
+  const handleTestAudio = () => {
+    const testMsg = `FleetGrid AI Voice Co-Pilot audio test successful! Connected to cab ${truckId}.`;
+    setAiResponse(testMsg);
+    void speakText(testMsg);
   };
 
   if (!isOpen) return null;
@@ -353,6 +499,14 @@ export function ElevenLabsVoiceAssistant({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleTestAudio}
+              className="rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 font-mono text-3xs font-semibold text-accent hover:bg-accent/20 transition-colors cursor-pointer"
+              title="Test Speaker & Audio Output"
+            >
+              🔊 Test Sound
+            </button>
             <button
               type="button"
               onClick={() => setShowSettings(!showSettings)}
@@ -411,7 +565,7 @@ export function ElevenLabsVoiceAssistant({
           </div>
         )}
 
-        {/* Voice Visualizer / Microphone Centerpiece */}
+        {/* Voice Visualizer / Centerpiece */}
         <div className="p-6 text-center space-y-5">
           {/* Animated Waveform Visualizer */}
           <div className="mx-auto flex h-24 w-full max-w-sm items-center justify-center gap-1.5 rounded-xl border border-base-800 bg-base-950/70 p-4">
@@ -442,54 +596,77 @@ export function ElevenLabsVoiceAssistant({
               {isListening ? (
                 <span className="text-danger flex items-center justify-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-danger animate-ping" />
-                  Listening to your microphone… Speak now!
+                  Listening to microphone… Speak now! (Auto-executes on pause)
                 </span>
               ) : isProcessing ? (
                 <span className="text-warn flex items-center justify-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-warn animate-spin" />
-                  Processing voice intent & executing API state…
+                  Processing voice command & executing action…
                 </span>
               ) : isSpeaking ? (
                 <span className="text-accent flex items-center justify-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
-                  {engineUsed === 'ELEVENLABS' ? 'ElevenLabs Neural TTS Voice Speaking…' : 'AI Voice Assistant Speaking…'}
+                  {engineUsed === 'ELEVENLABS' ? 'ElevenLabs Neural TTS Speaking…' : 'AI Voice Assistant Speaking…'}
                 </span>
               ) : (
-                <span className="text-ink-400">Press the microphone to speak or click a command below</span>
+                <span className="text-ink-400">Click the microphone to speak, or tap a command below</span>
               )}
             </div>
 
-            {/* Transcript Preview */}
-            {transcript && (
-              <div className="mt-3 rounded-lg border border-base-700 bg-base-850 p-3 font-mono text-xs text-ink-200">
-                <span className="text-ink-500 font-bold uppercase text-3xs block mb-1">Spoken Voice Transcript:</span>
-                "{transcript}"
-              </div>
-            )}
+            {/* Transcript Preview & Manual Input */}
+            <div className="mt-3 flex gap-2">
+              <input
+                type="text"
+                value={transcript}
+                onChange={(e) => {
+                  setTranscript(e.target.value);
+                  transcriptRef.current = e.target.value;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    void processVoiceCommand(transcript);
+                  }
+                }}
+                placeholder={isListening ? 'Listening… your speech will appear here' : 'Speak into mic, or type voice command here and hit Send…'}
+                className="flex-1 rounded-lg border border-base-700 bg-base-850 px-3 py-2 font-mono text-xs text-ink-100 placeholder:text-ink-500 focus:border-accent focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void processVoiceCommand(transcript)}
+                disabled={!transcript.trim() || isProcessing}
+                className="rounded-lg border border-accent bg-accent/20 px-3 py-2 font-mono text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                Send ↵
+              </button>
+            </div>
 
-            {/* AI Confirmation Reply */}
+            {/* AI Confirmation Spoken Reply Box */}
             {aiResponse && (
-              <div className="mt-3 rounded-lg border border-healthy/40 bg-healthy/10 p-3 font-mono text-xs text-healthy text-left">
+              <div className="mt-3 rounded-lg border border-healthy/40 bg-healthy/10 p-3 font-mono text-xs text-healthy text-left animate-fade-in">
                 <div className="flex items-center gap-1.5 text-3xs font-bold uppercase tracking-wider text-healthy mb-1">
-                  <span>✓ Action Executed & Confirmed</span>
-                  <span className="ml-auto text-ink-400 font-normal">
-                    Engine: {engineUsed === 'ELEVENLABS' ? 'ElevenLabs Neural' : 'Speech Engine'}
-                  </span>
+                  <span>✓ Spoken AI Response & Action</span>
+                  <button
+                    type="button"
+                    onClick={() => void speakText(aiResponse)}
+                    className="ml-auto text-ink-300 hover:text-white underline text-3xs cursor-pointer"
+                  >
+                    🔊 Replay Audio
+                  </button>
                 </div>
-                {aiResponse}
+                <div className="text-ink-100">{aiResponse}</div>
               </div>
             )}
           </div>
 
           {/* Main Action Push-To-Talk Button */}
-          <div className="flex justify-center">
+          <div className="flex justify-center items-center gap-4">
             <button
               type="button"
               onClick={isListening ? stopListening : startListening}
               className={cn(
                 'group relative flex h-16 w-16 items-center justify-center rounded-full text-2xl shadow-xl transition-all active:scale-95 cursor-pointer',
                 isListening
-                  ? 'bg-danger text-white shadow-danger/40 ring-4 ring-danger/30'
+                  ? 'bg-danger text-white shadow-danger/40 ring-4 ring-danger/30 animate-pulse'
                   : 'bg-accent text-base-950 shadow-accent/40 hover:bg-accent/90 ring-4 ring-accent/20',
               )}
             >
@@ -497,7 +674,7 @@ export function ElevenLabsVoiceAssistant({
             </button>
           </div>
           <div className="text-3xs font-mono text-ink-500">
-            {isListening ? 'Tap to Stop & Execute' : 'Tap to Start Voice Recognition'}
+            {isListening ? 'Tap to Finish Speaking & Send' : 'Tap to Start Speaking'}
           </div>
 
           {/* Quick Voice Command Chips */}
@@ -524,7 +701,7 @@ export function ElevenLabsVoiceAssistant({
         {/* Footer Note */}
         <div className="border-t border-base-800 bg-base-950/80 px-6 py-2.5 text-center font-mono text-3xs text-ink-500 flex items-center justify-between">
           <span>ElevenLabs Speech Model: Multilingual v2</span>
-          <span>Automatic Web Speech API Fallback</span>
+          <span>Automatic Web Speech Synthesis Fallback</span>
         </div>
       </div>
     </div>
