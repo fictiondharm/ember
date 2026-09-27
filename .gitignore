@@ -29,3 +29,8 @@ backend/.env
 .DS_Store
 Thumbs.db
 extracted_prd.txt
+
+# Build artifacts
+*.egg-info/
+dist/
+build/

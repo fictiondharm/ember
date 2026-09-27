@@ -1,0 +1,81 @@
+# render.yaml — Render Infrastructure as Code for FleetGrid
+# https://render.com/docs/blueprint-spec
+#
+# USAGE:
+#   1. Push this file to your GitHub repository.
+#   2. In Render dashboard: New → Blueprint → select repo → select this file.
+#   3. Render will create both the PostgreSQL database and Web Service automatically.
+#
+# SECRET MANAGEMENT:
+#   DATABASE_URL is injected automatically by Render from the database reference below.
+#   All other secrets (ELEVENLABS_API_KEY, DODO_PAYMENTS_API_KEY, etc.)
+#   must be set manually in: Render Dashboard → Service → Environment.
+#   NEVER commit real credentials to this file or source code.
+
+databases:
+  - name: fleetgrid-db
+    plan: free          # Change to 'starter' or higher for production SLA
+    databaseName: fleetgrid
+    user: fleetgrid
+
+services:
+  - type: web
+    name: fleetgrid-backend
+    runtime: python
+    plan: free          # Change to 'starter' or higher for production load
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+
+    envVars:
+      # DATABASE_URL is injected from the Render PostgreSQL database defined above.
+      # Render provides the URL as postgres://... which config.py automatically
+      # converts to postgresql:// for SQLAlchemy/psycopg2.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fleetgrid-db
+          property: connectionString
+
+      - key: ENVIRONMENT
+        value: production
+
+      # CORS: set this to your frontend URL(s) on Render or custom domain.
+      # Example: https://fleetgrid-control-tower.onrender.com
+      # Use comma-separated list for multiple origins.
+      # Leave as * only during initial development (disables credentials for browsers).
+      - key: CORS_ORIGINS
+        value: "*"
+
+      # PostgreSQL connection pool settings
+      - key: DB_POOL_SIZE
+        value: "3"         # Free tier: keep pool small
+      - key: DB_MAX_OVERFLOW
+        value: "6"
+      - key: DB_POOL_TIMEOUT
+        value: "30"
+      - key: DB_POOL_RECYCLE
+        value: "1800"
+
+      # ── Third-party secrets — set via Render dashboard, NOT here ──────────────
+      # ElevenLabs voice integration
+      - key: ELEVENLABS_API_KEY
+        sync: false        # Must be set manually in Render dashboard
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: ELEVENLABS_AGENT_ID
+        sync: false
+
+      # Dodo Payments
+      - key: DODO_PAYMENTS_API_KEY
+        sync: false
+      - key: DODO_WEBHOOK_SECRET
+        sync: false
+
+      # EVM Blockchain Proof Anchoring
+      - key: EVM_RPC_URL
+        sync: false
+      - key: EVM_PRIVATE_KEY
+        sync: false
+      - key: EVM_PROOF_CONTRACT_ADDRESS
+        sync: false

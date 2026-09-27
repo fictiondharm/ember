@@ -21,12 +21,16 @@ from app.config import settings
 from app.database import engine, SessionLocal, test_connection, Base
 
 
-ALEMBIC = os.path.join(
-    os.environ.get("LOCALAPPDATA", ""),
-    "Programs", "Python", "Python314", "Scripts", "alembic.exe"
-)
-if not os.path.exists(ALEMBIC):
-    ALEMBIC = "alembic"  # fallback to PATH
+# Resolve alembic from the same Python environment that is running this script.
+# This works on Linux (Render), macOS, and Windows without hardcoding paths.
+import shutil
+
+ALEMBIC = shutil.which("alembic")
+if not ALEMBIC:
+    # Fall back to python -m alembic if the script is not on PATH
+    ALEMBIC_CMD = [sys.executable, "-m", "alembic"]
+else:
+    ALEMBIC_CMD = [ALEMBIC]
 
 
 def check_db():
@@ -40,9 +44,9 @@ def check_db():
         if settings.is_postgres:
             print("\n   ⚠️  Could not connect to PostgreSQL.")
             print("   Options:")
-            print("   1. Use Neon (free cloud Postgres): https://neon.tech")
-            print("   2. Use local SQLite (set DATABASE_URL=sqlite:///./fleetgrid.db in .env)")
-            print("   3. Start local PostgreSQL service and check credentials")
+            print("   1. Check DATABASE_URL in your .env file")
+            print("   2. Verify Render PostgreSQL is running (or use local SQLite)")
+            print("   3. Use local SQLite: set DATABASE_URL=sqlite:///./fleetgrid.db")
     return ok
 
 
@@ -80,20 +84,18 @@ def create_local_db():
 
 def run_migrations():
     print("\n🚀 Running Alembic migrations...")
-    result = subprocess.run([ALEMBIC, "upgrade", "head"], cwd=os.path.dirname(__file__))
+    result = subprocess.run(ALEMBIC_CMD + ["upgrade", "head"], cwd=os.path.dirname(__file__))
     if result.returncode == 0:
         print("   ✅ Migrations applied successfully")
         return True
     else:
-        print("   ❌ Migration failed. Falling back to create_all...")
-        Base.metadata.create_all(bind=engine)
-        print("   ✅ Tables created via SQLAlchemy create_all")
-        return True
+        print("   ❌ Migration failed — check DATABASE_URL and database connectivity")
+        return False
 
 
 def generate_migration(message="auto"):
     print(f"\n🔧 Generating migration: '{message}'...")
-    result = subprocess.run([ALEMBIC, "revision", "--autogenerate", "-m", message], cwd=os.path.dirname(__file__))
+    result = subprocess.run(ALEMBIC_CMD + ["revision", "--autogenerate", "-m", message], cwd=os.path.dirname(__file__))
     if result.returncode == 0:
         print("   ✅ Migration file generated — review it in migrations/versions/")
     return result.returncode == 0

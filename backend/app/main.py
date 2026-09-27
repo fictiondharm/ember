@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import engine, Base, SessionLocal
+from app.database import SessionLocal
 from app.models.truck import Truck
 from app.services.seed_service import seed_demo_database
 
@@ -26,17 +26,19 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Initialize tables
-    Base.metadata.create_all(bind=engine)
-    
-    # 2. Auto-seed if database is brand new
-    db = SessionLocal()
+    # Tables are managed by Alembic (run `alembic upgrade head` before starting).
+    # Auto-seed only if the DB already has tables but is empty (first run after migration).
     try:
-        existing_truck = db.query(Truck).first()
-        if not existing_truck:
-            seed_demo_database(db)
-    finally:
-        db.close()
+        db = SessionLocal()
+        try:
+            existing_truck = db.query(Truck).first()
+            if not existing_truck:
+                seed_demo_database(db)
+        finally:
+            db.close()
+    except Exception:
+        # Tables may not exist yet (first deploy before migration) — skip seeding.
+        pass
 
     yield
 
@@ -47,11 +49,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware (permits Control Tower, Driver UI, Business UI across local and Render hostings)
+# CORS — supports explicit origin list or open wildcard.
+# Browser spec forbids allow_credentials=True with allow_origins=["*"].
+_wildcard_cors = "*" in settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS if "*" not in settings.CORS_ORIGINS else ["*"],
-    allow_credentials=True,
+    allow_origins=["*"] if _wildcard_cors else settings.CORS_ORIGINS,
+    allow_credentials=not _wildcard_cors,  # credentials not allowed with wildcard
     allow_methods=["*"],
     allow_headers=["*"],
 )
