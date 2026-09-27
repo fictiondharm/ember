@@ -1,0 +1,12 @@
+{
+  "name": "fleetgrid-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FleetGrid Autonomous Self-Healing Freight Operating System",
+  "scripts": {
+    "build": "npm --prefix fleetgrid/web install && npm --prefix fleetgrid/web run build && npm --prefix fleetgrid/server install && npm --prefix fleetgrid/server run build",
+    "start": "cd fleetgrid/server && npm run serve",
+    "dev": "npm --prefix fleetgrid/server run dev",
+    "test": "npm --prefix fleetgrid/server test"
+  }
+}

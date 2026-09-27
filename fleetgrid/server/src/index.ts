@@ -40,17 +40,63 @@ export function createApp(): express.Express {
   );
   app.use(express.json({ limit: '256kb' }));
 
-  app.get('/', (_req, res) => {
+  const webDist = resolve(serverRoot, '../web/dist');
+  const hasWeb = existsSync(webDist);
+
+  if (hasWeb) {
+    app.use(express.static(webDist));
+    app.get('/', (req, res, next) => {
+      if (req.accepts('html')) {
+        return res.sendFile(resolve(webDist, 'index.html'));
+      }
+      return next();
+    });
+  }
+
+  app.get('/api', (_req, res) => {
     res.json({
       service: 'FleetGrid API',
-      phase: 'MVP foundation — shared server-authoritative state',
-      storage: 'JSON files (no PostgreSQL in this phase)',
+      phase: 'Authoritative self-healing logistics network',
       realtime: '/realtime (WebSocket)',
       endpoints: ENDPOINT_INDEX,
     });
   });
 
+  if (!hasWeb) {
+    app.get('/', (_req, res) => {
+      res.json({
+        service: 'FleetGrid API',
+        phase: 'Authoritative self-healing logistics network',
+        realtime: '/realtime (WebSocket)',
+        endpoints: ENDPOINT_INDEX,
+      });
+    });
+  }
+
   app.use(buildRouter());
+
+  if (hasWeb) {
+    app.get('*', (req, res, next) => {
+      if (
+        req.path.startsWith('/state') ||
+        req.path.startsWith('/realtime') ||
+        req.path.startsWith('/incidents') ||
+        req.path.startsWith('/trucks') ||
+        req.path.startsWith('/shipments') ||
+        req.path.startsWith('/payments') ||
+        req.path.startsWith('/auth') ||
+        req.path.startsWith('/capacity') ||
+        req.path.startsWith('/bids') ||
+        req.path.startsWith('/recovery-plans') ||
+        req.path.startsWith('/agent') ||
+        req.path.startsWith('/demo')
+      ) {
+        return next();
+      }
+      res.sendFile(resolve(webDist, 'index.html'));
+    });
+  }
+
   app.use(notFoundHandler);
   app.use(errorHandler);
 
