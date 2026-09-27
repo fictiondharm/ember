@@ -1,0 +1,51 @@
+FLEETGRID CODING AGENT CONTRACT — READ BEFORE CODING
+
+SOURCE OF TRUTH:
+01_FleetGrid_Master_PRD.docx
+
+WORKSTREAMS:
+02 Agent Lead
+03 Backend/Data
+04 Frontend
+05 Voice/Integrations
+06 Payments/Infra/Proof
+
+NON-NEGOTIABLE:
+1. Backend is authoritative.
+2. Do not invent new entities/states/endpoints if the PRD already defines them.
+3. Agent mutations happen only through validated backend tools.
+4. Recovery/payment/cargo reassignment requires approval in MVP.
+5. Every important state change creates an event.
+6. External dependencies require a fallback.
+7. Never fake blockchain confirmation.
+8. Never put provider secrets in source code.
+9. Keep the golden demo working after every change.
+10. If a requirement is ambiguous, choose the smallest implementation consistent with the Master PRD and document the assumption.
+
+GOLDEN DEMO:
+Business creates 1T Bengaluru→Chennai shipment
+→ sees FG-027 3.8T spare capacity
+→ pays
+→ driver departs
+→ driver reports Hosur breakdown by ElevenLabs
+→ incident reaches backend
+→ agent identifies affected shipment
+→ agent finds FG-041 / FG-052
+→ agent creates recovery plan
+→ operator approves
+→ recovery executes
+→ driver/business notified
+→ payment/recovery status recorded
+→ cargo handoff event
+→ hash + blockchain proof status
+→ shipment continues
+→ delivery
+
+HANDOFF FORMAT:
+- What changed
+- Files changed
+- API/schema changes
+- Environment variables
+- Tests run
+- Manual verification steps
+- Known limitations

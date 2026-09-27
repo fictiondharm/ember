@@ -1,29 +1,59 @@
-# dependencies
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
 
-# build output
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
 dist/
 build/
+*.egg-info/
 *.tsbuildinfo
 
-# secrets — never commit real credentials
+# Secrets & Environment (PRD Rule #8: Never put provider secrets in source code)
 .env
 .env.*
 !.env.example
+*.env
+backend/.env
+frontend/.env
+frontend/.env.local
+*.local
 
-# runtime state (regenerated deterministically by the seed on boot)
+# Runtime state
 fleetgrid/server/data/
 !fleetgrid/server/data/.gitkeep
 
-# tooling scratch
+# Tooling scratch & Logs
 .gstack/
 *.log
 npm-debug.log*
-coverage/
+yarn-debug.log*
+yarn-error.log*
 
-# editor / OS
+# IDE / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-*.local
+extracted_prd.txt
