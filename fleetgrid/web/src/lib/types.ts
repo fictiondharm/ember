@@ -230,6 +230,40 @@ export interface CapacityMatch {
   matchesRequestedRoute: boolean;
   fitsRequestedWeight: boolean;
   blockers: string[];
+  segmentFit: 'EXACT' | 'PARTIAL' | 'NONE' | 'REVERSED' | 'UNKNOWN';
+  /** Why a truck qualifies despite not matching the requested lane exactly. */
+  segmentNote: string | null;
+  canCarryT: number;
+  spareAfterT: number | null;
+  priceForRequest: number | null;
+  priceForSplit: number | null;
+}
+
+export interface SplitLeg {
+  truck: Truck;
+  offer: CapacityOffer;
+  assignedT: number;
+  spareAfterT: number;
+  price: number;
+  segmentFit: CapacityMatch['segmentFit'];
+}
+
+/** The answer to "I have 10T and no single truck is big enough". */
+export interface CapacityOptions {
+  request: { origin: string | null; destination: string | null; weightT: number };
+  single: CapacityMatch[];
+  partial: CapacityMatch[];
+  split: {
+    legs: SplitLeg[];
+    coveredT: number;
+    uncoveredT: number;
+    fullyCovered: boolean;
+    totalPrice: number;
+    truckCount: number;
+  } | null;
+  /** Plain-language reason the request cannot be served, or null. */
+  impossible: string | null;
+  note: string;
 }
 
 export type RealtimeEventType =

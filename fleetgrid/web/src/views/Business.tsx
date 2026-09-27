@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../lib/api';
+import { flashClassFor } from '../lib/flash';
 import { useFleet } from '../store/FleetContext';
 import { AppHeader } from '../components/AppHeader';
 import { Panel, Placeholder } from '../components/Panel';
@@ -7,16 +8,23 @@ import { StatusPill } from '../components/Primitives';
 import { EventFeed } from '../components/EventFeed';
 import { cn, formatMoney, formatT, formatTime } from '../lib/format';
 import { shipmentTone, truckTone } from '../lib/tone';
-import type { CapacityMatch, Shipment, ShipmentEvent } from '../lib/types';
+import type { CapacityMatch, CapacityOptions, Shipment, ShipmentEvent, SplitLeg } from '../lib/types';
 
 type Step = 'SEARCH' | 'SELECTED' | 'CONFIRMED';
+
+/**
+ * Stops on the corridor, in travel order. A shipper can drop at any of them, so
+ * "Bengaluru → Hosur" is a first-class request rather than a half-broken version
+ * of the full run. A truck that is passing through counts as a match.
+ */
+const CORRIDOR_STOPS = ['Bengaluru', 'Krishnagiri', 'Hosur', 'Nellore', 'Chennai'] as const;
 
 /**
  * BUSINESS — shipper console.
  * Find compatible spare capacity, reserve it, and watch the shipment move.
  */
 export function Business() {
-  const { snapshot, session, refresh, connection, error: fleetError, flashIds } = useFleet();
+  const { snapshot, session, refresh, connection, error: fleetError, flashIds, flashTone } = useFleet();
 
   const [origin, setOrigin] = useState('Bengaluru');
   const [destination, setDestination] = useState('Chennai');
@@ -25,7 +33,9 @@ export function Business() {
   const [deadline, setDeadline] = useState('');
 
   const [matches, setMatches] = useState<CapacityMatch[] | null>(null);
+  const [options, setOptions] = useState<CapacityOptions | null>(null);
   const [selected, setSelected] = useState<CapacityMatch | null>(null);
+  const [splitLegs, setSplitLegs] = useState<SplitLeg[] | null>(null);
   const [confirmed, setConfirmed] = useState<Shipment | null>(null);
   const [step, setStep] = useState<Step>('SEARCH');
   // Other trucks near the selected one, so surplus capacity is visible up front.
@@ -50,6 +60,17 @@ export function Business() {
     [myShipments],
   );
 
+  /** Most recent event for a shipment, so a decline can be named rather than implied. */
+  const lastEventFor = useMemo(() => {
+    const latest = new Map<string, ShipmentEvent>();
+    for (const e of snapshot.events) {
+      if (!e.shipmentId) continue;
+      const held = latest.get(e.shipmentId);
+      if (!held || Date.parse(e.timestamp) >= Date.parse(held.timestamp)) latest.set(e.shipmentId, e);
+    }
+    return (id: string): ShipmentEvent | undefined => latest.get(id);
+  }, [snapshot.events]);
+
   useEffect(() => {
     if (timelineFor) {
       let cancelled = false;
@@ -72,21 +93,75 @@ export function Business() {
     setError(null);
     setConfirmed(null);
     setSelected(null);
+    setSplitLegs(null);
+    setOptions(null);
     setStep('SEARCH');
     const weightT = Number(weight);
     if (!Number.isFinite(weightT) || weightT <= 0) {
       setError('Enter a valid shipment weight in tonnes, e.g. 1.0');
       return;
     }
+    if (origin === destination) {
+      setError('Pickup and drop-off cannot be the same stop.');
+      return;
+    }
     setSearching(true);
     try {
-      const res = await api.capacity({ origin, destination, weightT });
-      setMatches(res.matches);
-      setStep('SEARCH');
+      // Ask what can actually carry this load, so an oversized request comes back
+      // with a plan instead of an empty list.
+      const res = await api.capacityOptions({ origin, destination, weightT });
+      setOptions(res);
+      setMatches(res.single.length ? res.single : res.partial);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
       setSearching(false);
+    }
+  }
+
+  /**
+   * Books a split load: one shipment per leg, each reserved on its own truck.
+   *
+   * The legs are sequential and stop on the first failure so the screen never claims
+   * a booking that did not happen. Each leg keeps the same driver-approval gate as a
+   * single-truck load, so a split is not a way around approval.
+   */
+  async function bookSplit() {
+    const legs = splitLegs ?? options?.split?.legs;
+    if (!legs?.length) return;
+    if (!cargoName.trim()) {
+      setError('Cargo name is required, e.g. "ABC Electronics".');
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    const booked: Shipment[] = [];
+    try {
+      for (const leg of legs) {
+        const res = await api.createShipment({
+          shipperId,
+          cargoName: cargoName.trim(),
+          origin,
+          destination,
+          weightT: leg.assignedT,
+          capacityOfferId: leg.offer.id,
+          ...(session?.user.id ? { actorId: session.user.id } : {}),
+        });
+        booked.push(res.shipment);
+      }
+      setConfirmed(booked[booked.length - 1] ?? null);
+      setSplitLegs(null);
+      setStep('CONFIRMED');
+      await refresh();
+    } catch (err) {
+      setError(
+        booked.length > 0
+          ? `Only ${booked.length} of ${legs.length} legs were booked before the error: ${(err as Error).message}`
+          : (err as Error).message,
+      );
+      setMatches(null);
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -123,6 +198,8 @@ export function Business() {
   function reset() {
     setStep('SEARCH');
     setSelected(null);
+    setSplitLegs(null);
+    setOptions(null);
     setConfirmed(null);
     setMatches(null);
     setNearby(null);
@@ -183,7 +260,8 @@ export function Business() {
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-ink-50">Ship a load</h1>
               <p className="mt-0.5 text-xs text-ink-400">
-                Reserve spare capacity already running on the Bengaluru → Chennai corridor.
+                Reserve spare capacity already running on the Bengaluru → Chennai corridor, dropping at
+                any stop along the way — or split a big load across several trucks.
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-md border border-base-600 bg-base-850 px-3 py-1.5 text-2xs text-ink-400">
@@ -214,10 +292,18 @@ export function Business() {
               >
                 <form onSubmit={findCapacity} className="grid gap-3 sm:grid-cols-4">
                   <Field label="Origin">
-                    <input className="field" value={origin} onChange={(e) => setOrigin(e.target.value)} />
+                    <select className="field" value={origin} onChange={(e) => setOrigin(e.target.value)}>
+                      {CORRIDOR_STOPS.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
                   </Field>
                   <Field label="Destination">
-                    <input className="field" value={destination} onChange={(e) => setDestination(e.target.value)} />
+                    <select className="field" value={destination} onChange={(e) => setDestination(e.target.value)}>
+                      {CORRIDOR_STOPS.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
                   </Field>
                   <Field label="Weight (tonnes)">
                     <input
@@ -233,6 +319,11 @@ export function Business() {
                     </button>
                   </div>
                 </form>
+                <p className="mt-2 text-[10px] text-ink-500">
+                  Any stop on the corridor can be your drop-off. A truck running the full
+                  Bengaluru → Chennai lane still passes Hosur, so half-route loads are matched
+                  to passing trucks as well as to trucks booked for that leg.
+                </p>
 
                 {error && (
                   <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -240,11 +331,69 @@ export function Business() {
                   </div>
                 )}
 
-                {matches && (
+                {options?.split && (
+                  <div className="mt-4 rounded-md border border-warn/40 bg-warn/[0.07] p-3.5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="eyebrow text-warn">
+                        No single truck is big enough — split it across {options.split.truckCount}
+                      </span>
+                      <span className="text-[10px] text-ink-400">
+                        {options.split.coveredT}T covered
+                        {options.split.uncoveredT > 0 ? `, ${options.split.uncoveredT}T still unplaced` : ''}
+                      </span>
+                    </div>
+                    <ul className="mt-2.5 space-y-1.5">
+                      {options.split.legs.map((leg) => (
+                        <li key={leg.truck.id} className="flex items-center justify-between gap-3 text-[11px]">
+                          <span className="min-w-0">
+                            <span className="font-mono font-semibold text-ink-50">{leg.truck.id}</span>
+                            <span className="text-ink-400">
+                              {' '}takes {leg.assignedT}T of your {options.request.weightT}T
+                              {leg.segmentFit === 'PARTIAL' ? ' · passing through' : ''}
+                            </span>
+                          </span>
+                          <span className="shrink-0 tabular text-ink-300">₹{leg.price.toLocaleString('en-IN')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {options.split.uncoveredT > 0 && (
+                      <p className="mt-2 text-[11px] text-warn">
+                        {options.split.uncoveredT}T has nowhere to go on this route. Reduce the weight or
+                        pick a different drop-off.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-primary mt-3 w-full"
+                      disabled={creating || !options.split.fullyCovered}
+                      onClick={() => {
+                        setSplitLegs(options.split!.legs);
+                        setSelected(null);
+                        setStep('SELECTED');
+                      }}
+                    >
+                      {creating ? 'Booking…' : `Book split across ${options.split.truckCount} trucks`}
+                    </button>
+                    <p className="mt-2 text-[10px] text-ink-500">{options.note}</p>
+                  </div>
+                )}
+
+                {options?.impossible && !options.split && (
+                  <div className="mt-4 rounded-md border border-dashed border-base-600 px-4 py-6 text-center">
+                    <p className="text-xs text-ink-200">{options.impossible}</p>
+                    <p className="mt-1.5 text-[10px] text-ink-500">
+                      Try a smaller load, a nearer drop-off, or a different pickup.
+                    </p>
+                  </div>
+                )}
+
+                {matches && matches.length > 0 && (
                   <div className="mt-4">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="eyebrow">
-                        {matches.length} compatible truck{matches.length === 1 ? '' : 's'}
+                        {options?.single.length
+                          ? `${options.single.length} truck${options.single.length === 1 ? '' : 's'} can take all ${options.request.weightT}T`
+                          : `${matches.length} truck${matches.length === 1 ? '' : 's'} can take part of it`}
                       </span>
                       <span className="text-[10px] text-ink-500">Prices and ETAs are demo estimates</span>
                     </div>
@@ -271,11 +420,19 @@ export function Business() {
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono text-sm font-semibold text-ink-50">{match.truck.id}</span>
                                   <StatusPill status={match.truck.status} tone={truckTone(match.truck.status)} />
+                                  {match.segmentFit === 'PARTIAL' && (
+                                    <span className="rounded border border-accent/40 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-accent">
+                                      passing through
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="mt-1 text-[11px] text-ink-400">
-                                  {match.route} · ETA {match.etaLabel}
+                                  {origin} → {destination} · ETA {match.etaLabel}
                                   {match.driverName ? ` · ${match.driverName}` : ''}
                                 </div>
+                                {match.segmentNote && (
+                                  <div className="mt-0.5 text-[10px] text-ink-500">{match.segmentNote}</div>
+                                )}
                               </div>
                               <div className="flex items-center gap-4">
                                 <div className="text-right">
@@ -286,26 +443,39 @@ export function Business() {
                                 </div>
                                 <div className="text-right">
                                   <div className="tabular text-sm font-semibold text-ink-50">
-                                    {formatMoney(match.truck.availableT * match.offer.pricePerT, match.currency)}
+                                    {match.fitsRequestedWeight
+                                      ? formatMoney(match.priceForRequest ?? 0, match.currency)
+                                      : <span className="text-warn">{formatT(match.canCarryT)} of it</span>}
                                   </div>
                                   <div className="text-[9px] uppercase tracking-[0.1em] text-ink-500">
-                                    {formatMoney(match.offer.pricePerT, match.currency)}/t
+                                    {match.fitsRequestedWeight
+                                      ? `for your ${formatT(options?.request.weightT ?? Number(weight))}`
+                                      : formatMoney(match.priceForSplit ?? 0, match.currency)}
                                   </div>
                                 </div>
                                 <button
                                   type="button"
                                   className={isSelected ? 'btn-ghost' : 'btn-primary'}
+                                  disabled={!match.fitsRequestedWeight}
+                                  title={
+                                    match.fitsRequestedWeight
+                                      ? undefined
+                                      : `Too small for the whole ${options?.request.weightT}T — use the split above`
+                                  }
                                   onClick={() => {
                                     setSelected(match);
+                                    setSplitLegs(null);
                                     setConfirmed(null);
                                     setError(null);
                                     setStep('SELECTED');
-                                    setOrigin(match.offer.origin);
-                                    setDestination(match.offer.destination);
                                     void loadNearby(match);
                                   }}
                                 >
-                                  {isSelected ? 'Selected' : 'Select Capacity'}
+                                  {isSelected
+                                    ? 'Selected'
+                                    : match.fitsRequestedWeight
+                                      ? 'Select Capacity'
+                                      : 'Use split'}
                                 </button>
                               </div>
                             </li>
@@ -316,6 +486,65 @@ export function Business() {
                   </div>
                 )}
               </Panel>
+
+              {step === 'SELECTED' && splitLegs && (
+                <Panel eyebrow="Step 2" title="Split load summary">
+                  <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+                    <SummaryRow label="Cargo" value={cargoName || '—'} />
+                    <SummaryRow label="Total weight" value={`${formatT(options?.request.weightT ?? Number(weight))}`} />
+                    <SummaryRow label="Route" value={`${origin} → ${destination}`} />
+                    <SummaryRow label="Trucks" value={splitLegs.map((l) => l.truck.id).join(' + ')} mono />
+                    <SummaryRow
+                      label="Demo price"
+                      value={formatMoney(splitLegs.reduce((s, l) => s + l.price, 0), 'INR')}
+                    />
+                  </dl>
+
+                  <ul className="mt-3 space-y-1.5">
+                    {splitLegs.map((leg) => (
+                      <li key={leg.truck.id} className="flex items-center justify-between gap-3 text-[11px]">
+                        <span className="font-mono text-ink-200">{leg.truck.id}</span>
+                        <span className="text-ink-400">
+                          {formatT(leg.assignedT)} of your load · {formatT(leg.spareAfterT)} still free after
+                        </span>
+                        <span className="tabular text-ink-300">{formatMoney(leg.price, 'INR')}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+                    <Field label="Cargo name">
+                      <input
+                        className="field"
+                        value={cargoName}
+                        onChange={(e) => setCargoName(e.target.value)}
+                        placeholder="ABC Electronics"
+                      />
+                    </Field>
+                    <Field label="Deadline (optional)">
+                      <input
+                        type="datetime-local"
+                        className="field"
+                        value={deadline}
+                        onChange={(e) => setDeadline(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn-primary mt-4 w-full sm:w-auto"
+                    onClick={bookSplit}
+                    disabled={creating}
+                  >
+                    {creating ? 'Booking each leg…' : `Book ${splitLegs.length} legs & request drivers`}
+                  </button>
+                  <p className="mt-2 text-[10px] leading-relaxed text-ink-500">
+                    This creates {splitLegs.length} separate shipments, one per truck. Each is reserved
+                    atomically and each driver approves their own leg — a split does not skip the approval gate.
+                  </p>
+                </Panel>
+              )}
 
               {step === 'SELECTED' && selected && (
                 <Panel eyebrow="Step 2" title="Shipment summary">
@@ -473,8 +702,12 @@ export function Business() {
                     {myShipments.map((s) => {
                       const truck = snapshot.trucks.find((t) => t.id === s.truckId);
                       const open = timelineFor === s.id;
+                      // A decline puts the load back to DRAFT, which on its own looks
+                      // like nothing happened. Say so, instead of leaving the shipper to
+                      // guess whether the request is still live.
+                      const declined = lastEventFor(s.id)?.eventType === 'shipment.capacity_released';
                       return (
-                        <li key={s.id} className={cn(flashIds.includes(s.id) && 'animate-flash-row')}>
+                        <li key={s.id} className={cn(flashClassFor(flashTone, s.id, flashIds))}>
                           <button
                             type="button"
                             className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-base-750/50"
@@ -484,17 +717,28 @@ export function Business() {
                               <div className="flex items-center gap-2">
                                 <span className="font-mono text-xs text-ink-50">{s.id}</span>
                                 <span className="truncate text-xs text-ink-300">{s.cargoName}</span>
+                                {declined && (
+                                  <span className="rounded border border-warn/45 bg-warn/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.1em] text-warn">
+                                    declined
+                                  </span>
+                                )}
                               </div>
                               <div className="mt-0.5 text-[10px] text-ink-500">
                                 {formatT(s.weightT)} · {s.origin} → {s.destination} ·{' '}
                                 <span className="font-mono">{s.truckId ?? 'unassigned'}</span>
                                 {truck ? ` · ${formatT(truck.availableT)} free` : ''}
                               </div>
+                              {declined && (
+                                <div className="mt-1 text-[10px] text-warn">
+                                  The driver declined this load. The {formatT(s.weightT)}T is back on the truck —
+                                  nothing is reserved. Search again to rebook it.
+                                </div>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <StatusPill
-                                status={s.status}
-                                tone={shipmentTone(s.status)}
+                                status={declined ? 'CAPACITY RELEASED' : s.status}
+                                tone={declined ? 'warn' : shipmentTone(s.status)}
                                 pulse={s.status === 'AT_RISK'}
                               />
                               <span className="font-mono text-[10px] text-ink-500">

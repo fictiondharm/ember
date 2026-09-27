@@ -4,6 +4,7 @@ import { progressFor, ROUTE_CORRIDOR } from '../lib/geo';
 import { truckTone } from '../lib/tone';
 import { StatusPill } from './Primitives';
 import type { Incident, Truck } from '../lib/types';
+import { flashClassFor, type FlashKind } from '../lib/flash';
 
 const TONE_DOT: Record<string, string> = {
   healthy: 'bg-healthy',
@@ -17,6 +18,7 @@ interface NetworkMapProps {
   trucks: Truck[];
   incidents: Incident[];
   flashIds: string[];
+  flashTone: FlashKind;
   onSelectTruck?: (truckId: string) => void;
 }
 
@@ -29,7 +31,7 @@ const LANE_HEIGHT = 62;
  * Bengaluru → Hosur → Chennai corridor. This is intentionally a diagram, not a
  * map: no external map provider, and nothing here can break the demo.
  */
-export function NetworkMap({ trucks, incidents, flashIds, onSelectTruck }: NetworkMapProps) {
+export function NetworkMap({ trucks, incidents, flashIds, flashTone, onSelectTruck }: NetworkMapProps) {
   const openIncidents = useMemo(
     () => incidents.filter((i) => i.status === 'OPEN' || i.status === 'ANALYZING' || i.status === 'ESCALATED'),
     [incidents],
@@ -109,7 +111,7 @@ export function NetworkMap({ trucks, incidents, flashIds, onSelectTruck }: Netwo
             onClick={() => onSelectTruck?.(truck.id)}
             className={cn(
               'group absolute z-10 -translate-x-1/2 rounded-md border bg-base-800/95 px-2.5 py-1.5 text-left backdrop-blur transition-all',
-              isFlashed && 'animate-flash-row',
+              isFlashed ? flashClassFor(flashTone, truck.id, flashIds) : '',
               hasIncident
                 ? 'border-danger/60 shadow-incident'
                 : 'border-base-600 hover:border-base-500',

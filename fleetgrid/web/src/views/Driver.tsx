@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../lib/api';
+import { flashClassFor } from '../lib/flash';
 import { useFleet } from '../store/FleetContext';
 import { AppHeader } from '../components/AppHeader';
 import { Panel, Placeholder } from '../components/Panel';
@@ -27,7 +28,7 @@ const INCIDENT_TYPES: Array<{ value: IncidentType; label: string; defaultLocatio
  * Mobile-friendly on purpose: this screen is meant to be demoed on a phone.
  */
 export function Driver() {
-  const { snapshot, session, refresh, connection, flashIds } = useFleet();
+  const { snapshot, session, refresh, connection, flashIds, flashTone } = useFleet();
 
   const truckId = session?.driver?.assignedTruckId ?? 'FG-027';
   const truck = snapshot.trucks.find((t) => t.id === truckId) ?? null;
@@ -212,7 +213,7 @@ export function Driver() {
             className={cn(
               'panel p-4',
               truck.status === 'INCIDENT' && 'border-danger/45 shadow-incident',
-              flashIds.includes(truck.id) && 'animate-flash-row',
+              flashClassFor(flashTone, truck.id, flashIds),
             )}
           >
             <div className="flex items-start justify-between gap-3">
@@ -288,7 +289,7 @@ export function Driver() {
                 {pending.map((offer) => (
                   <li
                     key={offer.shipment.id}
-                    className={cn('px-4 py-3.5', flashIds.includes(offer.shipment.id) && 'animate-flash-row')}
+                    className={cn('px-4 py-3.5', flashClassFor(flashTone, offer.shipment.id, flashIds))}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

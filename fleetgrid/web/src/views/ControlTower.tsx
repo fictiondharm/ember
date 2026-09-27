@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { flashClassFor } from '../lib/flash';
 import { useFleet } from '../store/FleetContext';
 import { AppHeader } from '../components/AppHeader';
 import { Metric, StatusPill } from '../components/Primitives';
@@ -17,7 +18,7 @@ type FleetFilter = 'ALL' | 'AVAILABLE' | 'IN_TRANSIT' | 'INCIDENT' | 'RECOVERY';
  * Every value is read from the server snapshot; nothing is simulated client-side.
  */
 export function ControlTower() {
-  const { snapshot, refresh, resetDemo, session, error, connection, lastEvent, flashIds, loading } = useFleet();
+  const { snapshot, refresh, resetDemo, session, error, connection, lastEvent, flashIds, flashTone, loading } = useFleet();
   const [filter, setFilter] = useState<FleetFilter>('ALL');
   const [resetting, setResetting] = useState(false);
   const [feedTab, setFeedTab] = useState<'agent' | 'all'>('all');
@@ -124,13 +125,13 @@ export function ControlTower() {
                 }
               >
                 <div className="h-[300px]">
-                  <NetworkMap trucks={visibleTrucks} incidents={incidents} flashIds={flashIds} />
+                  <NetworkMap trucks={visibleTrucks} incidents={incidents} flashIds={flashIds} flashTone={flashTone} />
                 </div>
               </Panel>
 
               <Panel eyebrow="Active Shipments" title="Cargo on the network" bodyClassName="p-0" className="min-h-[260px]">
                 <div className="max-h-[320px]">
-                  <ShipmentTable shipments={shipments} trucks={trucks} flashIds={flashIds} />
+                  <ShipmentTable shipments={shipments} trucks={trucks} flashIds={flashIds} flashTone={flashTone} />
                 </div>
               </Panel>
 
@@ -147,7 +148,7 @@ export function ControlTower() {
                       key={truck.id}
                       className={cn(
                         'bg-base-800 px-3.5 py-3 transition-colors hover:bg-base-750/60',
-                        flashIds.includes(truck.id) && 'animate-flash-row',
+                        flashClassFor(flashTone, truck.id, flashIds),
                       )}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -198,7 +199,7 @@ export function ControlTower() {
                   trucks={trucks}
                   plans={snapshot.recoveryPlans}
                   operatorId={operatorId}
-                  flashIds={flashIds}
+                  flashIds={flashIds} flashTone={flashTone}
                   onAction={refresh}
                 />
               </Panel>

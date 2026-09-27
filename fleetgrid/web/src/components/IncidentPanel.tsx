@@ -5,6 +5,7 @@ import { incidentTone, incidentTypeLabel, planTone } from '../lib/tone';
 import { StatusPill } from './Primitives';
 import { EmptyState, Placeholder } from './Panel';
 import type { Incident, RecoveryOption, RecoveryPlan, Shipment, Truck } from '../lib/types';
+import { flashClassFor, type FlashKind } from '../lib/flash';
 
 interface IncidentPanelProps {
   incidents: Incident[];
@@ -13,6 +14,7 @@ interface IncidentPanelProps {
   plans: RecoveryPlan[];
   operatorId: string;
   flashIds: string[];
+  flashTone: FlashKind;
   onAction: () => void;
 }
 
@@ -25,7 +27,7 @@ const LIVE_INCIDENT_STATES = new Set(['OPEN', 'ANALYZING', 'PLAN_READY', 'ESCALA
  * generates deterministic options from backend state and parks the plan in
  * PENDING_APPROVAL — the approval gate cannot be bypassed.
  */
-export function IncidentPanel({ incidents, shipments, trucks, plans, operatorId, flashIds, onAction }: IncidentPanelProps) {
+export function IncidentPanel({ incidents, shipments, trucks, plans, operatorId, flashIds, flashTone, onAction }: IncidentPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<RecoveryPlan | null>(null);
@@ -174,7 +176,7 @@ export function IncidentPanel({ incidents, shipments, trucks, plans, operatorId,
                 key={s.id}
                 className={cn(
                   'flex items-center justify-between gap-2 rounded border border-base-600 bg-base-900/70 px-2.5 py-2',
-                  flashIds.includes(s.id) && 'animate-flash-row',
+                  flashClassFor(flashTone, s.id, flashIds),
                 )}
               >
                 <div className="min-w-0">

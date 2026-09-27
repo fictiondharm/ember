@@ -67,11 +67,24 @@ export default {
           '0%': { backgroundColor: 'rgba(61,220,151,0.16)' },
           '100%': { backgroundColor: 'rgba(61,220,151,0)' },
         },
+        // A decline must never look like a success. Amber means "this went back",
+        // red means "something is wrong here" — the original green is reserved
+        // for progress the actor wanted.
+        'flash-row-release': {
+          '0%': { backgroundColor: 'rgba(240,178,72,0.20)' },
+          '100%': { backgroundColor: 'rgba(240,178,72,0)' },
+        },
+        'flash-row-alert': {
+          '0%': { backgroundColor: 'rgba(255,91,91,0.20)' },
+          '100%': { backgroundColor: 'rgba(255,91,91,0)' },
+        },
       },
       animation: {
         'pulse-ring': 'pulse-ring 2.4s cubic-bezier(0.22, 1, 0.36, 1) infinite',
         'slide-up': 'slide-up 220ms cubic-bezier(0.22, 1, 0.36, 1)',
         'flash-row': 'flash-row 1.4s ease-out',
+        'flash-row-release': 'flash-row-release 1.4s ease-out',
+        'flash-row-alert': 'flash-row-alert 1.4s ease-out',
       },
     },
   },

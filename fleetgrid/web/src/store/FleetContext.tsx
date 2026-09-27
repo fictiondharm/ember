@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api } from '../lib/api';
+import { flashKindFor, type FlashKind } from '../lib/flash';
 import { useRealtime, type ConnectionStatus } from '../lib/realtime';
 import type { DemoLoginResponse, FleetSnapshot, Mode, RealtimeEventType } from '../lib/types';
 
@@ -54,6 +55,12 @@ interface FleetContextValue {
   lastEvent: { type: string; at: number } | null;
   /** Highlights rows touched by the most recent realtime event. */
   flashIds: string[];
+  /**
+   * Tone for the rows in `flashIds`, derived from the event that triggered the
+   * refetch. A decline flashes amber, not green, so a rejection never reads as a
+   * completed action.
+   */
+  flashTone: FlashKind;
   refresh: () => Promise<void>;
   setMode: (mode: Mode) => Promise<void>;
   /**
@@ -76,6 +83,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<DemoLoginResponse | null>(null);
   const [lastEvent, setLastEvent] = useState<{ type: string; at: number } | null>(null);
   const [flashIds, setFlashIds] = useState<string[]>([]);
+  const [flashTone, setFlashTone] = useState<FlashKind>('ok');
 
   const pendingRef = useRef<number | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -112,6 +120,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         );
         if (ids.length) {
           setFlashIds(ids);
+          setFlashTone(flashKindFor(message.type));
           if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
           flashTimerRef.current = window.setTimeout(() => setFlashIds([]), 1600);
         }
@@ -199,6 +208,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     session,
     lastEvent,
     flashIds,
+    flashTone,
     refresh,
     setMode,
     adoptAccount,

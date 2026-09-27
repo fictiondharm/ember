@@ -3,18 +3,20 @@ import { shipmentTone } from '../lib/tone';
 import { StatusPill } from './Primitives';
 import { EmptyState } from './Panel';
 import type { Shipment, Truck } from '../lib/types';
+import { flashClassFor, type FlashKind } from '../lib/flash';
 
 interface ShipmentTableProps {
   shipments: Shipment[];
   trucks: Truck[];
   flashIds: string[];
+  flashTone: FlashKind;
   emptyHint?: string;
 }
 
 const ACTIVE_STATES = new Set(['DRAFT', 'CAPACITY_RESERVED', 'CONFIRMED', 'IN_TRANSIT', 'AT_RISK', 'RECOVERY']);
 
 /** ACTIVE SHIPMENTS — server state only, with the assigned truck resolved from live truck data. */
-export function ShipmentTable({ shipments, trucks, flashIds, emptyHint }: ShipmentTableProps) {
+export function ShipmentTable({ shipments, trucks, flashIds, flashTone, emptyHint }: ShipmentTableProps) {
   const active = shipments.filter((s) => ACTIVE_STATES.has(s.status));
 
   if (active.length === 0) {
@@ -42,7 +44,7 @@ export function ShipmentTable({ shipments, trucks, flashIds, emptyHint }: Shipme
                 key={s.id}
                 className={cn(
                   'border-b border-base-700/70 transition-colors hover:bg-base-750/50',
-                  flashIds.includes(s.id) && 'animate-flash-row',
+                  flashClassFor(flashTone, s.id, flashIds),
                 )}
               >
                 <td className="whitespace-nowrap px-4 py-2.5">

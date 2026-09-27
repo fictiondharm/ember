@@ -31,9 +31,15 @@ starting the web app (see `.env.example`).
    *Reserve capacity & request driver*. One server call reserves the tonnage atomically and leaves the shipment
    at `CAPACITY_RESERVED` — the truck goes `AVAILABLE → ASSIGNED` and its spare tonnage drops on every device at
    once. A panel also lists the other trucks nearest this one, with their spare tonnage.
+   - Search a **half route** like `Bengaluru → Hosur` and the results include trucks *passing through*, not just
+     trucks booked for that leg.
+   - Search a load **bigger than any truck** (e.g. `10.0` tonnes) and you get a concrete split plan across
+     several trucks instead of an empty result.
 2. **Driver** — the load appears under *Loads waiting for you*. **Accept** runs `CAPACITY_RESERVED → CONFIRMED`;
-   **Decline** gives the tonnage back and returns the shipment to `DRAFT` so the business can rebook. Until the
-   driver accepts, the truck **cannot depart** — the server rejects it. Then start the journey.
+   **Decline** gives the tonnage back and returns the shipment to `DRAFT` so the business can rebook. A decline is
+   shown as an amber **declined** badge with a plain explanation, never as a success — the row flash is toned by
+   the event that caused it. Until the driver accepts, the truck **cannot depart** — the server rejects it. Then
+   start the journey.
 3. **Incident** — the driver reports a breakdown. The truck goes `INCIDENT` and the shipment `AT_RISK`.
 4. **Control Tower** — analyze the incident, review the deterministic options, approve, then execute. The
    cargo is reassigned, the disabled truck returns to service, and the panel keeps a verified readback of
@@ -75,7 +81,7 @@ fleetgrid/
     src/services/         domain logic and state machines
     src/routes/           REST API + endpoint index
     src/seed/             deterministic demo dataset
-    test/flow.test.ts     end-to-end suite (187 checks, incl. two WebSocket clients)
+    test/flow.test.ts     end-to-end suite (209 checks, incl. two WebSocket clients)
   web/                    React + Vite + Tailwind single-page app
     src/store/            snapshot context, refetch-on-event, mode persistence
     src/views/            ControlTower, Business, Driver, Register, RoleSelect
@@ -150,14 +156,54 @@ never drift on names, order, or status, and that every `$ref` resolves.
 
 ## Seeded data
 
-Two organizations (ABC Distributors as shipper, FleetGrid Logistics as operator), six users, three
-drivers, three trucks on the Bengaluru → Chennai corridor, and two delivered historical shipments.
+Two organizations (ABC Distributors as shipper, FleetGrid Logistics as operator), nine drivers, nine
+trucks across four lanes, and four delivered historical shipments.
 
-| Truck  | Capacity | Seeded spare | Driver            |
-| ------ | -------- | ------------ | ----------------- |
-| FG-027 | 5.0T     | 3.8T         | Ravi Kumar        |
-| FG-041 | 5.0T     | 3.1T         | Imran Sheikh      |
-| FG-052 | 8.0T     | 5.0T         | Suresh Naidu      |
+| Truck  | Lane                    | Capacity | Seeded spare | Driver            |
+| ------ | ----------------------- | -------- | ------------ | ----------------- |
+| FG-027 | Bengaluru → Chennai     | 5.0T     | 3.8T         | Ravi Kumar        |
+| FG-041 | Bengaluru → Chennai     | 5.0T     | 3.1T         | Imran Sheikh      |
+| FG-052 | Bengaluru → Chennai     | 8.0T     | 5.0T         | Suresh Naidu      |
+| FG-061 | Bengaluru → Chennai     | 12.0T    | 9.4T         | Anita Fernandes   |
+| FG-073 | Bengaluru → Chennai     | 6.0T     | 2.2T         | Vikram Reddy      |
+| FG-091 | Bengaluru → Chennai     | 3.0T     | 1.1T         | Meena Subramanian |
+| FG-058 | Bengaluru → Hosur      | 10.0T    | 7.6T         | Harish Gowda      |
+| FG-065 | Hosur → Chennai         | 9.0T     | 6.1T         | Divya Pillai      |
+| FG-084 | Krishnagiri → Chennai   | 7.0T     | 4.4T         | Ganesh Murthy     |
+
+> No truck on the main lane holds 10T spare, so the split-load path stays reachable from the UI.
+
+> **Deviation from the Master PRD.** Master PRD §17 lists FG-027 as 10T with 8.8T spare. The direct task
+> brief specified 5.0T capacity and 3.8T spare so the driver screen shows those exact figures, and the
+> seed follows the brief. This is called out in `server/src/seed/seed.ts`.
+
+### Half-route matching
+
+The corridor is `Bengaluru → Krishnagiri → Hosur → Nellore → Chennai`. A shipper can pick **any** stop as
+the drop-off, and a truck is a match when its own run *contains* the requested segment:
+
+- Request `Bengaluru → Hosur` and FG-058 matches **exactly**, while FG-052 and FG-061 match as
+  **passing through** — they are on their way to Chennai and cover the Hosur drop.
+- A `Hosur → Chennai` request matches FG-065 exactly and the main-lane trucks as passing through.
+- A reversed request (`Chennai → Bengaluru`) is refused with a stated reason rather than silently
+  matched, and off-lane trucks are never offered.
+
+Search and booking use the same rule, so a truck the UI offers can always actually be reserved.
+
+### Split loads
+
+`GET /capacity/options?origin=&destination=&weightT=` answers the question a plain capacity search
+cannot: *what can actually be done with this load?* A 10T request against a fleet holding 9.4T, 5T and
+3.8T used to return nothing, which reads as a broken product. It now returns one of:
+
+- `single` — a truck that takes the whole load,
+- `split` — a concrete plan across several trucks (`legs`, `coveredT`, `uncoveredT`, `totalPrice`),
+  built largest-truck-first so it uses as few trucks as possible,
+- `impossible` — a plain-language reason, with no options invented.
+
+Booking a split creates **one shipment per leg**. Each leg is reserved atomically and **each driver
+approves their own leg** — splitting is not a way around the approval gate. If a later leg fails, the
+screen says how many legs were booked rather than pretending the whole thing worked.
 
 > **Deviation from the Master PRD.** Master PRD §17 lists FG-027 as 10T with 8.8T spare. The direct task
 > brief specified 5.0T capacity and 3.8T spare so the driver screen shows those exact figures, and the
@@ -185,7 +231,7 @@ independent WebSocket clients: seed integrity, capacity search, oversell rejecti
 departure, incident creation, recovery options, the approval gate (including a bypass attempt that must
 fail), execution, idempotent re-execution, timeline, delivery confirmation, the honesty of
 the unwired integration routes, the published tool contract, registration, the driver approval
-gate, and reset. 187 checks, no
+gate, and reset. 209 checks, no
 mocking of business rules.
 
 ---
@@ -203,3 +249,11 @@ Web: `VITE_API_URL`.
 - No authentication. `POST /auth/demo-login` selects a seeded role and `POST /auth/register`
   creates an account, but neither has a password, token, or session. Both are demo scope.
 - Cost, ETA, and distance numbers are demo estimates, labelled as such in the UI.
+- The corridor is one stylised lane. `CORRIDOR_ORDER` in `server/src/lib/geo.ts` is a hand-declared
+  list, not a real road network, so a city not on that list only ever matches an exact
+  origin/destination pair. Half-route matching is one direction only — there is no reverse-lane logic.
+- Split loads are planned by a greedy largest-truck-first fill. That minimises truck count but is not
+  a cost optimiser, and it does not consider pickup times, driver hours, or how many legs a truck can
+  already have.
+- A split creates separate shipments, so the shipper sees N rows for one physical order. There is no
+  parent "consolidated load" entity, because the Master PRD does not define one.

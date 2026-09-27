@@ -1,5 +1,6 @@
 import { API_BASE } from './config';
 import type {
+  CapacityOptions,
   CapacityMatch,
   DemoLoginResponse,
   FleetSnapshot,
@@ -104,7 +105,20 @@ export const api = {
       driverId ? { driverId } : {},
     ),
 
-  capacity: (params: { origin?: string; destination?: string; weightT?: number; includeAll?: boolean }) => {
+    /**
+     * Every way this load can actually move: one truck, a split across several, or a
+     * plain reason it cannot be done. Returns something useful even when nothing fits,
+     * which is the whole point — an empty list reads as a broken product.
+     */
+    capacityOptions: (params: { origin: string; destination: string; weightT: number }) => {
+      const qs = new URLSearchParams({
+        origin: params.origin,
+        destination: params.destination,
+        weightT: String(params.weightT),
+      });
+      return request<CapacityOptions>(`/capacity/options?${qs.toString()}`);
+    },
+    capacity: (params: { origin?: string; destination?: string; weightT?: number; includeAll?: boolean }) => {
     const qs = new URLSearchParams();
     if (params.origin) qs.set('origin', params.origin);
     if (params.destination) qs.set('destination', params.destination);

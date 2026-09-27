@@ -3,7 +3,7 @@ import { ApiError } from '../lib/errors.js';
 import { nowIso, round } from '../lib/ids.js';
 import { runExclusive } from '../lib/mutex.js';
 import { hub } from './realtime.js';
-import { canonicalLocation, distanceKm, etaLabelFor, proximityLabel } from '../lib/geo.js';
+import { canonicalLocation, distanceKm, etaLabelFor, proximityLabel, segmentFit, segmentNote, type SegmentFit } from '../lib/geo.js';
 import type { CapacityOffer, Shipment, Truck } from '../types.js';
 
 export interface CapacitySearchInput {
@@ -24,6 +24,18 @@ export interface CapacityMatch {
   matchesRequestedRoute: boolean;
   fitsRequestedWeight: boolean;
   blockers: string[];
+  /** EXACT = whole lane, PARTIAL = truck passes the requested stop on a longer run. */
+  segmentFit: SegmentFit;
+  /** Why a truck qualifies despite not matching the requested lane exactly. */
+  segmentNote: string | null;
+  /** How much of the request this truck alone could take. */
+  canCarryT: number;
+  /** Surplus on this truck once the whole request is placed here, when it fits. */
+  spareAfterT: number | null;
+  /** What the whole request would cost on this truck, at this lane's demo rate. */
+  priceForRequest: number | null;
+  /** What the whole request would cost split across `legs`. */
+  priceForSplit: number | null;
 }
 
 const BLOCKING_TRUCK_STATES = new Set(['DELIVERED', 'INCIDENT', 'RECOVERY']);
@@ -76,17 +88,31 @@ export async function searchCapacity(input: CapacitySearchInput): Promise<Capaci
     }
     if (offer.availableT <= 0) blockers.push('No spare capacity remaining');
 
-    const matchesRoute =
-      (!origin || canonicalLocation(offer.origin) === origin) &&
-      (!destination || canonicalLocation(offer.destination) === destination);
-    if (!matchesRoute) blockers.push('Route does not match the request');
+    const driver = truck.driverId ? drivers.find((d) => d.id === truck.driverId) : undefined;
 
-    const fits = truck.availableT >= required;
-    if (!fits) {
-      blockers.push(`Only ${round(truck.availableT)}T spare, request needs ${round(required)}T`);
+    // A truck running the whole lane also passes the intermediate stops, so a
+    // Bengaluru → Hosur request is legitimately served by a Bengaluru → Chennai truck.
+    const fit: SegmentFit =
+      origin && destination
+        ? segmentFit(offer.origin, offer.destination, origin, destination)
+        : 'EXACT';
+    const onRoute = fit === 'EXACT' || fit === 'PARTIAL';
+    if (!onRoute) {
+      blockers.push(
+        fit === 'REVERSED'
+          ? `Runs the other way — ${offer.origin} → ${offer.destination}`
+          : `Route does not cover ${origin ?? '?'} → ${destination ?? '?'}`,
+      );
     }
 
-    const driver = truck.driverId ? drivers.find((d) => d.id === truck.driverId) : undefined;
+    const fits = truck.availableT >= required;
+
+    // Only tonnage is a hard blocker. A truck that cannot take the whole load is
+    // still returned as a partial option, because a split across trucks may well
+    // cover the request — the caller decides that, not this function.
+    if (!fits) {
+      blockers.push(`Takes only ${round(truck.availableT)}T of the ${round(required)}T request`);
+    }
 
     matches.push({
       offer,
@@ -96,9 +122,16 @@ export async function searchCapacity(input: CapacitySearchInput): Promise<Capaci
       etaLabel: offer.departureAt ? etaLabelFor(offer.departureAt) : 'Unscheduled',
       estimatedPrice: Math.round(truck.availableT * offer.pricePerT),
       currency: 'INR',
-      matchesRequestedRoute: matchesRoute,
+      matchesRequestedRoute: onRoute,
       fitsRequestedWeight: fits,
       blockers,
+      segmentFit: fit,
+      segmentNote: origin && destination ? segmentNote(fit, destination, offer.destination) : null,
+      canCarryT: required > 0 ? round(Math.min(truck.availableT, required)) : round(truck.availableT),
+      spareAfterT: fits ? round(truck.availableT - required) : null,
+      priceForRequest: required > 0 && fits ? Math.round(required * offer.pricePerT) : null,
+      priceForSplit:
+        required > 0 && !fits ? Math.round(Math.min(truck.availableT, required) * offer.pricePerT) : null,
     });
   }
 
@@ -116,6 +149,125 @@ export async function findAvailableCapacity(input: CapacitySearchInput): Promise
   const all = await searchCapacity(input);
   const usable = all.filter((m) => m.blockers.length === 0);
   return usable;
+}
+
+export interface SplitLeg {
+  truck: Truck;
+  offer: CapacityOffer;
+  /** How much of the request this truck is being asked to carry. */
+  assignedT: number;
+  /** What is left on the truck after this leg. */
+  spareAfterT: number;
+  price: number;
+  segmentFit: SegmentFit;
+}
+
+export interface CapacityOptions {
+  request: { origin: string | null; destination: string | null; weightT: number };
+  /** One truck can take the whole load. */
+  single: CapacityMatch[];
+  /** No single truck is big enough; these together might cover it. */
+  partial: CapacityMatch[];
+  /** A concrete split across several trucks, largest truck first. */
+  split: {
+    legs: SplitLeg[];
+    coveredT: number;
+    uncoveredT: number;
+    fullyCovered: boolean;
+    totalPrice: number;
+    truckCount: number;
+  } | null;
+  /** True when the request cannot be served at all, with the reason. */
+  impossible: string | null;
+}
+
+/**
+ * GET /capacity/options — what can actually be done with this load.
+ *
+ * A 10T request against trucks holding 5T, 3.8T and 3.1T used to return nothing at
+ * all, which reads as "the product is broken". This composes the three real answers
+ * instead: one truck, a split across trucks, or an honest "not possible".
+ *
+ * The split is a *plan*, not an assignment — nothing is reserved here. The caller
+ * books the legs explicitly, each one going through the same atomic reservation and
+ * the same driver approval gate as any other load.
+ */
+export async function capacityOptions(input: CapacitySearchInput): Promise<CapacityOptions> {
+  const request = {
+    origin: input.origin ? canonicalLocation(input.origin) : null,
+    destination: input.destination ? canonicalLocation(input.destination) : null,
+    weightT: round(input.weightT ?? input.minAvailableT ?? 0),
+  };
+  const all = await searchCapacity(input);
+
+  // Only trucks that are genuinely on the requested lane and not blocked for any
+  // reason other than tonnage can contribute to a split.
+  const routeBlocked = all.filter((m) =>
+    m.blockers.some((b) => b !== `Takes only ${round(m.truck.availableT)}T of the ${round(request.weightT)}T request`),
+  );
+  const usableForSplit = all.filter(
+    (m) => !routeBlocked.includes(m) && m.truck.availableT > 0 && (m.segmentFit === 'EXACT' || m.segmentFit === 'PARTIAL'),
+  );
+
+  const single = usableForSplit.filter((m) => m.fitsRequestedWeight);
+
+  // Greedy fill, biggest truck first, so the plan uses as few trucks as possible.
+  let remaining = request.weightT;
+  const legs: SplitLeg[] = [];
+  for (const m of [...usableForSplit].sort((a, b) => b.truck.availableT - a.truck.availableT)) {
+    if (remaining <= 0) break;
+    const assignedT = round(Math.min(m.truck.availableT, remaining));
+    if (assignedT <= 0) continue;
+    legs.push({
+      truck: m.truck,
+      offer: m.offer,
+      assignedT,
+      spareAfterT: round(m.truck.availableT - assignedT),
+      price: Math.round(assignedT * m.offer.pricePerT),
+      segmentFit: m.segmentFit,
+    });
+    remaining = round(remaining - assignedT);
+  }
+
+  const coveredT = round(request.weightT - Math.max(remaining, 0));
+  // Only surface a split when one truck genuinely cannot do it. A "split across 1
+  // truck" line next to a normal single-truck result is noise that reads as a bug.
+  const plan =
+    legs.length > 0
+      ? {
+          legs,
+          coveredT,
+          uncoveredT: round(Math.max(remaining, 0)),
+          fullyCovered: remaining <= 0,
+          totalPrice: legs.reduce((sum, l) => sum + l.price, 0),
+          truckCount: legs.length,
+        }
+      : null;
+  const split = single.length === 0 ? plan : null;
+
+  let impossible: string | null = null;
+  if (single.length === 0 && (!plan || plan.coveredT <= 0)) {
+    if (usableForSplit.length === 0) {
+      const offRoute = all.length === 0;
+      impossible = offRoute
+        ? `No truck publishes capacity on this network right now.`
+        : `No truck covers ${request.origin ?? 'this pickup'} → ${request.destination ?? 'this drop'} with any spare capacity.`;
+    } else {
+      impossible = `Together the ${usableForSplit.length} truck(s) on this route only have ${round(
+        usableForSplit.reduce((s, m) => s + m.truck.availableT, 0),
+      )}T spare, short of the ${request.weightT}T requested.`;
+    }
+  } else if (plan && !plan.fullyCovered) {
+    impossible = `The trucks on this route can only cover ${plan.coveredT}T of the ${request.weightT}T requested.`;
+  }
+
+  return {
+    request,
+    single,
+    partial: usableForSplit.filter((m) => !m.fitsRequestedWeight),
+    split,
+    impossible,
+  };
 }
 
 export interface NearbySuggestion extends CapacityMatch {
@@ -158,20 +310,19 @@ export async function suggestNearbyCapacity(input: {
     const driver = truck.driverId ? drivers.find((d) => d.id === truck.driverId) : undefined;
     const origin = input.origin ? canonicalLocation(input.origin) : null;
     const destination = input.destination ? canonicalLocation(input.destination) : null;
-    const matchesRoute =
-      (!origin || canonicalLocation(offer.origin) === origin) &&
-      (!destination || canonicalLocation(offer.destination) === destination);
-    const fits = !input.weightT || truck.availableT >= input.weightT;
+    const required = input.weightT ?? 0;
+    const fit: SegmentFit =
+      origin && destination ? segmentFit(offer.origin, offer.destination, origin, destination) : 'EXACT';
+    const onRoute = fit === 'EXACT' || fit === 'PARTIAL';
+    const fits = !required || truck.availableT >= required;
     const blockers: string[] = [];
     if (offer.status === 'CLOSED') blockers.push('Capacity offer is closed');
     if (BLOCKING_TRUCK_STATES.has(truck.status)) {
       blockers.push(`Truck is ${truck.status.replace('_', ' ').toLowerCase()}`);
     }
     if (offer.availableT <= 0) blockers.push('No spare capacity remaining');
-    if (!matchesRoute) blockers.push('Route does not match the request');
-    if (!fits && input.weightT) {
-      blockers.push(`Only ${round(truck.availableT)}T spare, request needs ${round(input.weightT)}T`);
-    }
+    if (!onRoute) blockers.push(`Route does not cover ${origin ?? '?'} → ${destination ?? '?'}`);
+    if (!fits && required) blockers.push(`Takes only ${round(truck.availableT)}T of the ${round(required)}T request`);
     return {
       offer,
       truck,
@@ -180,9 +331,16 @@ export async function suggestNearbyCapacity(input: {
       etaLabel: offer.departureAt ? etaLabelFor(offer.departureAt) : 'Unscheduled',
       estimatedPrice: Math.round(truck.availableT * offer.pricePerT),
       currency: 'INR',
-      matchesRequestedRoute: matchesRoute,
+      matchesRequestedRoute: onRoute,
       fitsRequestedWeight: fits,
       blockers,
+      segmentFit: fit,
+      segmentNote: origin && destination ? segmentNote(fit, destination, offer.destination) : null,
+      canCarryT: required > 0 ? round(Math.min(truck.availableT, required)) : round(truck.availableT),
+      spareAfterT: fits && required ? round(truck.availableT - required) : null,
+      priceForRequest: required > 0 && fits ? Math.round(required * offer.pricePerT) : null,
+      priceForSplit:
+        required > 0 && !fits ? Math.round(Math.min(truck.availableT, required) * offer.pricePerT) : null,
     };
   };
 
@@ -269,14 +427,21 @@ export async function reserveCapacity(input: ReserveInput): Promise<ReserveResul
         { truckStatus: truck.status },
       );
     }
-    if (canonicalLocation(truck.origin) !== canonicalLocation(shipment.origin)) {
+    // The same segment rule the search uses. Booking must agree with search: if
+    // `GET /capacity/options` offered a passing truck for a half-route drop, then
+    // reserving on it has to work rather than fail with a route-mismatch error.
+    const fit = segmentFit(truck.origin, truck.destination, shipment.origin, shipment.destination);
+    if (fit === 'NONE' || fit === 'UNKNOWN') {
       throw ApiError.unprocessable(
-        `Truck ${truck.id} departs from ${truck.origin}, but the shipment needs pickup in ${shipment.origin}.`,
+        `Truck ${truck.id} runs ${truck.origin} → ${truck.destination}, which does not cover ` +
+          `pickup in ${shipment.origin} and delivery in ${shipment.destination}.`,
+        { truckRoute: `${truck.origin} → ${truck.destination}`, requested: `${shipment.origin} → ${shipment.destination}` },
       );
     }
-    if (canonicalLocation(truck.destination) !== canonicalLocation(shipment.destination)) {
+    if (fit === 'REVERSED') {
       throw ApiError.unprocessable(
-        `Truck ${truck.id} delivers to ${truck.destination}, but the shipment needs delivery in ${shipment.destination}.`,
+        `Truck ${truck.id} runs the other way — ${truck.origin} → ${truck.destination}.`,
+        { truckRoute: `${truck.origin} → ${truck.destination}` },
       );
     }
     if (truck.availableT < shipment.weightT) {

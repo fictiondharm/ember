@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { db } from '../store/db.js';
 import { round } from '../lib/ids.js';
-import { findAvailableCapacity, reserveCapacity, searchCapacity, suggestNearbyCapacity } from '../services/capacity.js';
+import { capacityOptions, findAvailableCapacity, reserveCapacity, searchCapacity, suggestNearbyCapacity } from '../services/capacity.js';
 import { asyncHandler } from '../middleware/errors.js';
 import { validateBody, validateQuery } from '../middleware/validate.js';
 import { requiredParam } from '../middleware/params.js';
@@ -61,6 +61,32 @@ capacityRouter.post(
       actorId: actorId ?? null,
     });
     res.json({ ok: true, ...result });
+  }),
+);
+
+const optionsQuerySchema = z.object({
+  origin: z.string().min(2).optional(),
+  destination: z.string().min(2).optional(),
+  weightT: z.coerce.number().positive().optional(),
+});
+
+/**
+ * GET /capacity/options — the honest answer for any load.
+ *
+ * Returns one truck, a split across several, or a plain reason it cannot be done.
+ * Registered before `/capacity/:id` so "options" is not read as an offer id.
+ */
+capacityRouter.get(
+  '/capacity/options',
+  validateQuery(optionsQuerySchema),
+  asyncHandler(async (_req, res) => {
+    const query = res.locals.query as z.infer<typeof optionsQuerySchema>;
+    const result = await capacityOptions(query);
+    res.json({
+      ...result,
+      note:
+        'A split is a plan, not a booking. Each leg is reserved and driver-approved separately, exactly like a single-truck load.',
+    });
   }),
 );
 

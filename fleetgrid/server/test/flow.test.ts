@@ -105,6 +105,7 @@ async function main(): Promise<void> {
 
   section('2. Deterministic seed');
   const trucks = await api('/trucks');
+  const seedOffers = (await api('/capacity?includeAll=true')).body.matches.map((m: any) => m.offer);
   const byId = new Map<string, any>(trucks.body.trucks.map((t: any) => [t.id, t]));
   check('FG-027 exists', byId.has('FG-027'));
   check('FG-027 is 5.0T capacity / 3.8T spare / AVAILABLE',
@@ -112,8 +113,17 @@ async function main(): Promise<void> {
     byId.get('FG-027'));
   check('FG-041 is 5.0T capacity / 3.1T spare', byId.get('FG-041')?.availableT === 3.1);
   check('FG-052 is 8.0T capacity / 5.0T spare', byId.get('FG-052')?.availableT === 5);
-  check('All trucks route Bengaluru → Chennai',
-    trucks.body.trucks.every((t: any) => t.origin === 'Bengaluru' && t.destination === 'Chennai'));
+  check('The network runs more than one lane',
+    new Set(trucks.body.trucks.map((t: any) => `${t.origin}->${t.destination}`)).size >= 3,
+    [...new Set(trucks.body.trucks.map((t: any) => `${t.origin}->${t.destination}`))]);
+  check('Every truck publishes a capacity offer on its own lane',
+    trucks.body.trucks.every((t: any) => seedOffers.some((o: any) =>
+      o.truckId === t.id && o.origin === t.origin && o.destination === t.destination)),
+    'a truck without a matching offer would be invisible to Business');
+  check('Shorter lanes are priced below the full run',
+    seedOffers.find((o: any) => o.truckId === 'FG-058')?.pricePerT <
+      seedOffers.find((o: any) => o.truckId === 'FG-027')?.pricePerT,
+    'Bengaluru → Hosur should cost less per tonne than Bengaluru → Chennai');
 
   const state1 = await api('/state');
   const demoLogin = await api('/auth/demo-login', {
@@ -140,10 +150,97 @@ async function main(): Promise<void> {
 
   section('4. Business finds compatible capacity');
   const capacity = await api('/capacity?origin=Bengaluru&destination=Chennai&weightT=1');
-  check('GET /capacity returns 3 compatible offers', capacity.body.count === 3, capacity.body);
+  // Five trucks now run the main lane; the Bengaluru → Hosur, Hosur → Chennai and
+  // Krishnagiri → Chennai trucks must NOT match a full-length run.
+  check('GET /capacity returns 6 compatible offers on the main lane', capacity.body.count === 6, capacity.body.count);
+  check('No off-lane truck leaks into a full-length run',
+    capacity.body.matches.every((m: any) => m.route === 'Bengaluru → Chennai'), capacity.body.matches.map((m: any) => m.route));
   const fg027 = capacity.body.matches.find((m: any) => m.truck.id === 'FG-027');
   check('FG-027 offered at 3.8T spare on Bengaluru → Chennai',
     fg027?.truck.availableT === 3.8 && fg027?.route === 'Bengaluru → Chennai', fg027);
+  check('A 1T request is priced on the requested tonnage, not all spare capacity',
+    fg027?.priceForRequest === 850 && fg027?.estimatedPrice === 3230, { req: fg027?.priceForRequest, all: fg027?.estimatedPrice });
+
+  section('4b. Half-route and split-load matching');
+  const half = await api('/capacity/options?origin=Bengaluru&destination=Hosur&weightT=4');
+  const halfIds = half.body.single.map((m: any) => m.truck.id);
+  check('Bengaluru → Hosur is served by a Bengaluru → Hosur truck (exact)',
+    half.body.single.some((m: any) => m.segmentFit === 'EXACT' && m.truck.id === 'FG-058'), halfIds);
+  check('Bengaluru → Hosur is also served by main-lane trucks passing through (partial)',
+    half.body.single.some((m: any) => m.segmentFit === 'PARTIAL' && m.truck.id === 'FG-052'), halfIds);
+  check('A half-route request is cheaper than the same weight on the full lane',
+    half.body.single.find((m: any) => m.truck.id === 'FG-058')?.priceForRequest === 1360,
+    half.body.single.find((m: any) => m.truck.id === 'FG-058'));
+  check('No split is offered when a single truck already covers the load', half.body.split === null, half.body.split);
+  check('A Bengaluru → Hosur truck is not offered on a Hosur → Chennai request',
+    !(await api('/capacity/options?origin=Hosur&destination=Chennai&weightT=4')).body.single.some((m: any) => m.truck.id === 'FG-058'),
+    'FG-058 must not appear on the second half');
+
+  const big = await api('/capacity/options?origin=Bengaluru&destination=Chennai&weightT=10');
+  check('A 10T request matches no single truck', big.body.single.length === 0, big.body.single.length);
+  check('A 10T request returns a concrete split plan instead of nothing', big.body.split !== null, big.body);
+  check('The split plan covers the full 10T',
+    big.body.split?.coveredT === 10 && big.body.split?.uncoveredT === 0 && big.body.split?.fullyCovered === true, big.body.split);
+  check('The split uses the fewest trucks possible', big.body.split?.truckCount === 2, big.body.split?.truckCount);
+  check('Split legs sum to the requested weight',
+    Math.round(big.body.split.legs.reduce((s: number, l: any) => s + l.assignedT, 0)) === 10,
+    big.body.split.legs.map((l: any) => [l.truck.id, l.assignedT]));
+  check('No leg is assigned more than the truck actually has spare',
+    big.body.split.legs.every((l: any) => l.assignedT <= l.truck.availableT && l.assignedT > 0), big.body.split.legs);
+  check('An impossible request says so in plain words',
+    (await api('/capacity/options?origin=Bengaluru&destination=Hosur&weightT=99')).body.impossible !== null,
+    (await api('/capacity/options?origin=Bengaluru&destination=Hosur&weightT=99')).body);
+
+  // Search and booking must agree. Booking a half-route load on a truck that is
+  // passing through used to fail with a route-mismatch error after the UI had
+  // already offered that truck.
+  const halfShipper = (await api('/auth/demo-login', { method: 'POST', body: JSON.stringify({ role: 'BUSINESS' }) }))
+    .body.organization.id;
+  const halfBooked = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({
+      shipperId: halfShipper,
+      cargoName: 'Half Route Electronics',
+      origin: 'Bengaluru',
+      destination: 'Hosur',
+      weightT: 4,
+      capacityOfferId: half.body.single.find((m: any) => m.segmentFit === 'PARTIAL').offer.id,
+    }),
+  });
+  check('A half-route load books on a passing truck', halfBooked.status === 201, halfBooked.body);
+  check('The shipment keeps the requested drop-off, not the truck lane',
+    halfBooked.body?.shipment?.destination === 'Hosur', halfBooked.body?.shipment);
+  check('A half-route booking still waits for driver approval',
+    halfBooked.body?.shipment?.status === 'CAPACITY_RESERVED' && halfBooked.body?.awaitingDriverApproval === true,
+    halfBooked.body);
+
+  const reversed = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({
+      shipperId: halfShipper,
+      cargoName: 'Wrong Way',
+      origin: 'Chennai',
+      destination: 'Bengaluru',
+      weightT: 1,
+      capacityOfferId: half.body.single[0].offer.id,
+    }),
+  });
+  check('A reversed route is refused with a reason', reversed.status === 422 && /other way/.test(JSON.stringify(reversed.body)),
+    { status: reversed.status, body: reversed.body });
+
+  const offLane = await api('/shipments', {
+    method: 'POST',
+    body: JSON.stringify({
+      shipperId: halfShipper,
+      cargoName: 'Nowhere Lane',
+      origin: 'Hosur',
+      destination: 'Bengaluru',
+      weightT: 1,
+      capacityOfferId: 'cap_fg058',
+    }),
+  });
+  check('A truck booked for one leg cannot be forced onto an uncovered leg',
+    offLane.status === 422, { status: offLane.status, body: offLane.body });
 
   section('5. Validation rejects bad input');
   const badWeight = await api('/shipments', {
@@ -355,8 +452,13 @@ async function main(): Promise<void> {
 
   section('9. Recovery: deterministic options + approval gate');
   const options = await api(`/incidents/${incidentId}/recovery-options`);
-  check('Two compatible candidates returned',
-    options.body.options.filter((o: any) => o.compatible).length === 2, options.body.options);
+  // The wider fleet means more recovery choices than the original two.
+  check('Every candidate that can take the cargo is offered',
+    options.body.options.filter((o: any) => o.compatible).length === 5, options.body.options);
+  check('Off-lane trucks are rejected for recovery with a stated reason',
+    options.body.options.filter((o: any) => !o.compatible).every((o: any) => o.reason.startsWith('Rejected')),
+    options.body.options.filter((o: any) => !o.compatible).map((o: any) => o.reason));
+
   const fg041 = options.body.options.find((o: any) => o.truckId === 'FG-041');
   const fg052 = options.body.options.find((o: any) => o.truckId === 'FG-052');
   check('FG-041 candidate: 3.1T spare, 8.2 km, 17 min',
@@ -723,7 +825,7 @@ async function main(): Promise<void> {
   const t027 = afterReset.body.trucks.find((t: any) => t.id === 'FG-027');
   check('Reset: FG-027 back to 3.8T / AVAILABLE', t027?.availableT === 3.8 && t027?.status === 'AVAILABLE', t027);
   check('Reset: no live incidents', afterReset.body.incidents.filter((i: any) => i.status === 'OPEN').length === 0);
-  check('Reset: only the two seeded historical shipments remain', afterReset.body.shipments.length === 2, afterReset.body.shipments.length);
+  check('Reset: only the four seeded historical shipments remain', afterReset.body.shipments.length === 4, afterReset.body.shipments.length);
   check('Reset: no recovery plans', afterReset.body.recoveryPlans.length === 0);
   check('Reset broadcast reached Control Tower', tower.types().includes('demo.reset'), tower.types());
   check('Reset removes the accounts created during this run',

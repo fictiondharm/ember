@@ -45,6 +45,7 @@ export const ENDPOINT_INDEX = [
   { method: 'POST', path: '/trucks', purpose: 'Register a truck' },
   { method: 'POST', path: '/trucks/:id/depart', purpose: 'Start journey (truck + shipments → IN_TRANSIT)' },
   { method: 'GET', path: '/capacity', purpose: 'Compatible open capacity search' },
+  { method: 'GET', path: '/capacity/options', purpose: 'What can carry this load: one truck, a split across trucks, or why not' },
   { method: 'GET', path: '/capacity/nearby', purpose: 'Other trucks nearest the selected one, with real distance + spare tonnage' },
   { method: 'GET', path: '/capacity/:id', purpose: 'Capacity offer detail' },
   { method: 'POST', path: '/capacity/:id/reserve', purpose: 'Atomically reserve capacity for a DRAFT shipment' },

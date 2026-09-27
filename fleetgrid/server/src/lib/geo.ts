@@ -80,6 +80,69 @@ const EARTH_RADIUS_KM = 6371;
 const toRad = (deg: number): number => (deg * Math.PI) / 180;
 
 /**
+ * The Bengaluru → Chennai corridor in travel order, including the intermediate
+ * stops a shipper might want to use.
+ *
+ * This is what makes a half-route request work: a truck running the whole
+ * Bengaluru → Chennai lane also passes Krishnagiri, Hosur and Nellore, so it can
+ * legitimately serve Bengaluru → Hosur without being re-seeded as a separate lane.
+ *
+ * Order is declared rather than derived from latitude because the demo corridor is
+ * stylised; sorting by coordinates would put Tiruppur (off to the west, near
+ * Coimbatore) in the middle of a lane it is not part of.
+ */
+export const CORRIDOR_ORDER = ['Bengaluru', 'Krishnagiri', 'Hosur', 'Nellore', 'Chennai'] as const;
+
+/** Position of a city along the corridor, or null when it is not on the lane. */
+export function corridorIndex(city: string): number | null {
+  const key = canonicalLocation(city);
+  const idx = CORRIDOR_ORDER.indexOf(key as (typeof CORRIDOR_ORDER)[number]);
+  return idx === -1 ? null : idx;
+}
+
+export type SegmentFit = 'EXACT' | 'PARTIAL' | 'NONE' | 'REVERSED' | 'UNKNOWN';
+
+/**
+ * Can a truck running `truckOrigin → truckDestination` carry a shipment that only
+ * needs `shipOrigin → shipDestination`?
+ *
+ * PARTIAL means the truck covers a longer run than the shipment needs, which is the
+ * half-route case. REVERSED means the two run the same lane in opposite directions,
+ * which this build does not serve — reported honestly rather than silently matching.
+ */
+export function segmentFit(
+  truckOrigin: string,
+  truckDestination: string,
+  shipOrigin: string,
+  shipDestination: string,
+): SegmentFit {
+  const tFrom = corridorIndex(truckOrigin);
+  const tTo = corridorIndex(truckDestination);
+  const sFrom = corridorIndex(shipOrigin);
+  const sTo = corridorIndex(shipDestination);
+
+  // Anything off the declared lane can only be matched exactly.
+  if (tFrom === null || tTo === null || sFrom === null || sTo === null) {
+    const exact =
+      canonicalLocation(truckOrigin) === canonicalLocation(shipOrigin) &&
+      canonicalLocation(truckDestination) === canonicalLocation(shipDestination);
+    return exact ? 'EXACT' : 'NONE';
+  }
+
+  if (tFrom > tTo || sFrom > sTo) return 'REVERSED';
+  if (tFrom <= sFrom && tTo >= sTo) {
+    return tFrom === sFrom && tTo === sTo ? 'EXACT' : 'PARTIAL';
+  }
+  return 'NONE';
+}
+
+/** Human wording for a PARTIAL match, so the UI can say why a truck qualifies. */
+export function segmentNote(fit: SegmentFit, shipDestination: string, truckDestination: string): string | null {
+  if (fit !== 'PARTIAL') return null;
+  return `On the way to ${truckDestination}, so it covers your ${shipDestination} drop`;
+}
+
+/**
  * Great-circle distance between two stored points, in km.
  *
  * This is real arithmetic over the seeded `lat`/`lng` on each truck, not a routing
