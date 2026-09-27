@@ -25,7 +25,7 @@ const CORRIDOR_STOPS = ['Bengaluru', 'Krishnagiri', 'Hosur', 'Nellore', 'Chennai
  * Find compatible spare capacity, reserve it, and watch the shipment move.
  */
 export function Business() {
-  const { snapshot, session, refresh, setMode, connection, error: fleetError, flashIds, flashTone } = useFleet();
+  const { snapshot, session, refresh, connection, error: fleetError, flashIds, flashTone } = useFleet();
 
   const [origin, setOrigin] = useState('Bengaluru');
   const [destination, setDestination] = useState('Chennai');
@@ -697,17 +697,11 @@ export function Business() {
                       value={`${confirmed.origin} → ${confirmed.destination}`}
                     />
                   </dl>
-                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-healthy/30 bg-healthy/5 p-3">
-                    <button
-                      type="button"
-                      onClick={() => void setMode('PAYMENTS')}
-                      className="flex items-center gap-2 rounded-lg bg-healthy px-4 py-2 font-mono text-2xs font-bold uppercase tracking-wider text-base-950 shadow-md transition-all hover:bg-healthy/90 active:scale-[0.99]"
-                    >
-                      <span>🦤</span> Pay with Dodo Payments →
-                    </button>
-                    <span className="font-mono text-3xs text-ink-300">
-                      Settles capacity reservation escrow & authorizes carrier departure.
-                    </span>
+                  <div className="mt-3">
+                    <Placeholder>
+                      Payment capture is a phase-2 integration. This build stops at a reserved, capacity-held
+                      shipment — nothing claims a payment was taken.
+                    </Placeholder>
                   </div>
                 </div>
               )}

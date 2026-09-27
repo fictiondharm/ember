@@ -17,7 +17,6 @@ const MODES: Array<{ id: Mode; label: string; short: string }> = [
   { id: 'LANDING', label: 'Landing Page', short: 'Landing' },
   { id: 'CONTROL_TOWER', label: 'Control Tower', short: 'Tower' },
   { id: 'LIVE_MAP', label: 'Live GPS Map', short: 'Live Map' },
-  { id: 'PAYMENTS', label: 'Dodo Payments', short: 'Payments' },
   { id: 'BUSINESS', label: 'Business', short: 'Business' },
   { id: 'DRIVER', label: 'Driver', short: 'Driver' },
 ];

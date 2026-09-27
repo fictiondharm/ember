@@ -7,12 +7,10 @@ import { eventsRouter } from './events.js';
 import { healthRouter } from './health.js';
 import { incidentsRouter } from './incidents.js';
 import { integrationsRouter } from './integrations.js';
-import { miscRouter } from './misc.js';
+import { paymentsRouter } from './payments.js';
 import { recoveryRouter } from './recovery.js';
 import { shipmentsRouter } from './shipments.js';
 import { trucksRouter } from './trucks.js';
-
-import { paymentsRouter } from './payments.js';
 
 export function buildRouter(): Router {
   const router = Router();
@@ -26,9 +24,9 @@ export function buildRouter(): Router {
   router.use(driverRouter);
   router.use(incidentsRouter);
   router.use(recoveryRouter);
+  router.use(paymentsRouter);
   router.use(eventsRouter);
   router.use(demoRouter);
-  router.use(paymentsRouter);
   router.use(integrationsRouter);
 
   return router;
