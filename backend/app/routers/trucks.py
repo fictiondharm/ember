@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.truck import Truck
 from app.models.shipment import Shipment
-from app.schemas.all_schemas import TruckCreate, TruckResponse, TruckDepartRequest
+from app.schemas.all_schemas import (
+    TruckCreate, TruckResponse, TruckDepartRequest,
+    TruckLocationUpdate, TruckLocationResponse,
+)
 from app.services.event_service import record_shipment_event
 from app.websocket_manager import ws_manager
 
@@ -43,6 +46,15 @@ def list_trucks(status: Optional[str] = None, db: Session = Depends(get_db)):
     if status:
         query = query.filter(Truck.status == status.upper())
     return query.all()
+
+@router.get("/locations", response_model=List[TruckLocationResponse])
+def get_truck_locations(db: Session = Depends(get_db)):
+    """
+    Return all trucks with valid location data for the live tracking map.
+    Called once on page load; subsequent updates come via WebSocket /ws/tracking.
+    """
+    trucks = db.query(Truck).filter(Truck.lat.isnot(None), Truck.lng.isnot(None)).all()
+    return [TruckLocationResponse.from_truck(t) for t in trucks]
 
 @router.get("/{id}", response_model=TruckResponse)
 def get_truck(id: str, db: Session = Depends(get_db)):
@@ -96,3 +108,57 @@ async def truck_depart(id: str, req: Optional[TruckDepartRequest] = None, db: Se
     })
 
     return truck
+
+
+# ── Location Tracking Endpoints ──────────────────────────────────────────────
+
+
+
+@router.post("/{truck_id}/location", response_model=TruckLocationResponse)
+async def update_truck_location(
+    truck_id: str,
+    req: TruckLocationUpdate,
+    db: Session = Depends(get_db),
+):
+    """
+    Update a truck's live location.
+    Called by the driver app or the development location simulator.
+    Persists to DB and broadcasts TRUCK_LOCATION_UPDATE to all WebSocket clients.
+    """
+    truck = db.query(Truck).filter(Truck.id == truck_id).first()
+    if not truck:
+        raise HTTPException(status_code=404, detail=f"Truck '{truck_id}' not found")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # store naive UTC
+
+    truck.lat = req.latitude
+    truck.lng = req.longitude
+    truck.speed_kmph = req.speed_kmph
+    truck.heading = req.heading
+    truck.location_status = "ACTIVE" if req.speed_kmph > 0 else "IDLE"
+    truck.last_location_update = now
+
+    db.commit()
+    db.refresh(truck)
+
+    effective_status = truck.location_status or "ACTIVE"
+
+    # Broadcast to all connected tracking WebSocket clients (/ws/tracking & /realtime)
+    await ws_manager.broadcast({
+        "type": "TRUCK_LOCATION_UPDATE",
+        "truck_id": truck.id,
+        "latitude": truck.lat,
+        "longitude": truck.lng,
+        "speed_kmph": truck.speed_kmph,
+        "heading": truck.heading,
+        "status": effective_status,
+        "location_status": truck.location_status,
+        "registration_no": truck.registration_no,
+        "registration_number": truck.registration_no,
+        "origin": truck.origin,
+        "destination": truck.destination,
+        "timestamp": now.isoformat() + "Z",
+    })
+
+    return TruckLocationResponse.from_truck(truck)
+

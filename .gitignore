@@ -21,7 +21,14 @@ htmlcov/
 
 # Environment and secrets (PRD Rule #8: Never put provider secrets in source code)
 .env
+*.env
 backend/.env
+frontend/.env
+frontend/.env.local
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
 
 # IDE / OS
 .vscode/
@@ -34,3 +41,4 @@ extracted_prd.txt
 *.egg-info/
 dist/
 build/
+

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -19,6 +19,14 @@ class Truck(Base):
     destination = Column(String, nullable=True)
     departure_at = Column(DateTime, nullable=True)
     driver_id = Column(String, nullable=True)
+
+    # ── Live location tracking fields ───────────────────────────────────────────
+    speed_kmph = Column(Float, nullable=True, default=None)
+    heading = Column(Integer, nullable=True, default=None)   # 0-360 degrees
+    # ACTIVE | IDLE | OFFLINE | INCIDENT
+    location_status = Column(String, nullable=True, default="OFFLINE")
+    last_location_update = Column(DateTime, nullable=True, default=None)
+    # ────────────────────────────────────────────────────────────────────────────
 
     organization = relationship("Organization", back_populates="trucks")
     capacity_offers = relationship("CapacityOffer", back_populates="truck")

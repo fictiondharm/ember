@@ -29,3 +29,31 @@ async def websocket_realtime_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.warning(f"WebSocket client error: {e}")
         ws_manager.disconnect(websocket)
+
+
+@router.websocket("/ws/tracking")
+async def websocket_tracking_endpoint(websocket: WebSocket):
+    """
+    Dedicated WebSocket for the live truck tracking map.
+    Shares the same ws_manager as /realtime so POST /trucks/{id}/location
+    broadcasts to all connected clients on both paths.
+    """
+    await ws_manager.connect(websocket)
+    try:
+        await websocket.send_text(json.dumps({
+            "type": "connected",
+            "message": "Connected to FleetGrid live truck tracking stream."
+        }))
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception as e:
+        logger.warning(f"Tracking WebSocket client error: {e}")
+        ws_manager.disconnect(websocket)

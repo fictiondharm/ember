@@ -227,3 +227,80 @@ class ProofAnchorResponse(BaseModel):
     contract_address: Optional[str] = None
     verified_at: datetime
     message: str
+
+# ── Live Truck Location Schemas ─────────────────────────────────────────────
+
+class TruckLocationUpdate(BaseModel):
+    """Body for POST /trucks/{id}/location"""
+    latitude: float    # validated: -90 to 90
+    longitude: float   # validated: -180 to 180
+    speed_kmph: float = 0.0  # validated: >= 0
+    heading: int = 0         # validated: 0 to 360
+
+    from pydantic import field_validator
+
+    @field_validator("latitude")
+    @classmethod
+    def validate_latitude(cls, v: float) -> float:
+        if not (-90 <= v <= 90):
+            raise ValueError("latitude must be between -90 and 90")
+        return v
+
+    @field_validator("longitude")
+    @classmethod
+    def validate_longitude(cls, v: float) -> float:
+        if not (-180 <= v <= 180):
+            raise ValueError("longitude must be between -180 and 180")
+        return v
+
+    @field_validator("speed_kmph")
+    @classmethod
+    def validate_speed(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("speed_kmph must be >= 0")
+        return v
+
+    @field_validator("heading")
+    @classmethod
+    def validate_heading(cls, v: int) -> int:
+        if not (0 <= v <= 360):
+            raise ValueError("heading must be between 0 and 360")
+        return v
+
+
+class TruckLocationResponse(BaseModel):
+    """Response for GET /trucks/locations and POST /trucks/{truck_id}/location"""
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    registration_no: Optional[str] = None
+    registration_number: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    speed_kmph: Optional[float] = None
+    heading: Optional[int] = None
+    location_status: Optional[str] = None
+    last_location_update: Optional[datetime] = None
+    status: Optional[str] = "ACTIVE"
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    organization_id: Optional[str] = None
+
+    @classmethod
+    def from_truck(cls, truck) -> "TruckLocationResponse":
+        effective_status = truck.location_status or truck.status or "ACTIVE"
+        return cls(
+            id=truck.id,
+            registration_no=truck.registration_no,
+            registration_number=truck.registration_no,
+            latitude=truck.lat,
+            longitude=truck.lng,
+            speed_kmph=truck.speed_kmph if truck.speed_kmph is not None else 0.0,
+            heading=truck.heading if truck.heading is not None else 0,
+            location_status=truck.location_status or "ACTIVE",
+            last_location_update=truck.last_location_update,
+            status=effective_status,
+            origin=truck.origin,
+            destination=truck.destination,
+            organization_id=truck.organization_id,
+        )
+
